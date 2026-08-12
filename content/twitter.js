@@ -120,13 +120,55 @@
     return { author: authorHandle, authorName: authorName, content: content, url: url };
   }
 
+  // 被回覆的貼文（DOM 備援；正式資料以攔截到的發文 API 回應為準）。
+  // 沒有這個備援時，8 秒備援先送出的回覆會缺 replyTo，background 就接不回母筆記。
+  //
+  // 抓不到一律回 null：把貼文合併進錯的筆記比不合併更糟。
+  function getReplyTo(source) {
+    const dialog = source?.closest?.('[role="dialog"]') || null;
+
+    // 貼文頁下方的 inline 回覆框：頁面網址本身就是被回覆的貼文
+    if (!dialog) {
+      const match = String(window.location.href || '')
+        .match(/^https:\/\/(?:x|twitter)\.com\/([^/?#]+)\/status\/(\d+)/i);
+      return match ? `https://x.com/${match[1]}/status/${match[2]}` : null;
+    }
+
+    // dialog 可能只是一般發文，不能用頁面網址猜；只認 dialog 內顯示的母貼文
+    const parent = dialog.querySelector('[data-testid="tweet"]');
+    const href = parent?.querySelector('a[href*="/status/"]')?.getAttribute('href') || '';
+    const path = href.match(/\/([^/?#]+)\/status\/(\d+)/);
+    return path ? `https://x.com/${path[1]}/status/${path[2]}` : null;
+  }
+
+  // 登入帳號：時間軸回應裡別人的貼文不該被當成自己的作品補存。
+  // 只讀側邊欄的個人頁連結，不做全文件搜尋。
+  function getOwnAuthor() {
+    const link = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]');
+    const href = link ? link.getAttribute('href') || '' : '';
+    return href.replace(/^\//, '').split('/')[0] || '';
+  }
+
   const pipeline = SP2O.createPublishPipeline({
     platform: 'x',
     label: 'Twitter',
     parseResponse: SP2O.parseCreateTweet,
     getTextContent: getTextContent,
     getQuoted: getQuotedTweet,
+    getReplyTo: getReplyTo,
     getDraftInputs: () => document.querySelectorAll(EDITOR_SELECTOR)
+  });
+
+  // 手機 app 發的文攔不到發文 API。一般 X 頁面會由 background 暫時開啟本人
+  // replies 分頁取得時間軸；本來就在個人頁時則直接沿用目前的 API 回應。
+  // UserTweetsAndReplies（「回覆」分頁）不可省略：回覆別人的貼文不會出現在
+  // UserTweets（「貼文」分頁）裡，少了它那些貼文永遠補不回來。
+  SP2O.createBackfillWatcher({
+    platform: 'x',
+    label: 'Twitter',
+    parseTimeline: SP2O.parseUserTweets,
+    getOwnAuthor: getOwnAuthor,
+    scanOperations: ['UserTweetsAndReplies', 'UserTweets']
   });
 
   // 設定事件監聽

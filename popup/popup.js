@@ -1,14 +1,20 @@
-// DOM 元素
 const apiKeyInput = document.getElementById('apiKey');
 const portInput = document.getElementById('port');
 const basePathInput = document.getElementById('basePath');
 const mediaPathInput = document.getElementById('mediaPath');
-const storageModeSelect = document.getElementById('storageMode');
-const directSettings = document.getElementById('directSettings');
-const restSettings = document.getElementById('restSettings');
+const storageProviderSelect = document.getElementById('storageProvider');
+const markdownSettingsPanel = document.getElementById('markdownSettings');
+const notesSettingsPanel = document.getElementById('notesSettings');
+const restSettingsPanel = document.getElementById('restSettings');
+const commonPathGroup = document.getElementById('commonPathGroup');
+const notesLocationSelect = document.getElementById('notesLocation');
+const refreshNotesBtn = document.getElementById('refreshNotesBtn');
 const httpWarning = document.getElementById('httpWarning');
-const chooseVaultBtn = document.getElementById('chooseVaultBtn');
+const chooseFolderBtn = document.getElementById('chooseFolderBtn');
 const vaultName = document.getElementById('vaultName');
+const nativeSetupHelp = document.getElementById('nativeSetupHelp');
+const nativeSetupMessage = document.getElementById('nativeSetupMessage');
+const nativeSetupHint = document.getElementById('nativeSetupHint');
 const settingsPanel = document.getElementById('settingsPanel');
 const settingsForm = document.getElementById('settingsForm');
 const toggleApiKey = document.getElementById('toggleApiKey');
@@ -24,279 +30,357 @@ const clearDraftsBtn = document.getElementById('clearDraftsBtn');
 const recentList = document.getElementById('recentList');
 const previewPopover = document.getElementById('previewPopover');
 const previewText = document.getElementById('previewText');
+
 let actionStatusTimer;
 let activePreviewAnchor;
+let loadedSettings = {};
+let notesLocationsPromise;
+let connectionRequestId = 0;
+const NOTES_LOCATIONS_CACHE_KEY = 'appleNotesLocationsCache';
 
 function readPort() {
   const enteredPort = Number.parseInt(portInput.value, 10);
   return Number.isInteger(enteredPort) ? enteredPort : 27123;
 }
 
-// 依 port 決定協定（27124 是 Local REST API 的 HTTPS 埠）
-function apiBase(port) {
-  const protocol = Number(port) === 27124 ? 'https' : 'http';
-  return `${protocol}://127.0.0.1:${port}`;
+function providerLabel(provider) {
+  if (provider === STORAGE_PROVIDERS.APPLE_NOTES) return 'Apple 備忘錄';
+  if (provider === STORAGE_PROVIDERS.OBSIDIAN_REST) return 'Obsidian Local REST API';
+  return '本機 Markdown 資料夾';
 }
 
-// REST 連線探測：「測試連線」按鈕與常駐燈號共用同一份，避免兩處判斷 drift
-async function pingRestApi(port, apiKey) {
-  return fetch(`${apiBase(port)}/`, {
-    headers: { 'Authorization': `Bearer ${apiKey}` }
-  });
+function activePathSettings() {
+  return storageProviderSelect.value === STORAGE_PROVIDERS.OBSIDIAN_REST
+    ? loadedSettings.obsidianRestSettings || {}
+    : loadedSettings.markdownFolderSettings || {};
 }
 
-function updateModeUI() {
-  const native = storageModeSelect.value === 'native';
-  directSettings.hidden = !native;
-  restSettings.hidden = native;
-  testBtn.textContent = native ? '檢查 Helper' : '測試連線';
+function updateModeUI(loadPaths = false) {
+  const provider = storageProviderSelect.value;
+  const markdown = provider === STORAGE_PROVIDERS.MARKDOWN_FOLDER;
+  const notes = provider === STORAGE_PROVIDERS.APPLE_NOTES;
+  markdownSettingsPanel.hidden = !markdown;
+  notesSettingsPanel.hidden = !notes;
+  restSettingsPanel.hidden = provider !== STORAGE_PROVIDERS.OBSIDIAN_REST;
+  commonPathGroup.hidden = notes;
+  testBtn.textContent = markdown ? '檢查 Helper' : notes ? '檢查備忘錄' : '測試連線';
+  if (loadPaths && !notes) {
+    const paths = activePathSettings();
+    basePathInput.value = paths.basePath || DEFAULT_BASE_PATH;
+    mediaPathInput.value = paths.mediaPath || DEFAULT_MEDIA_PATH;
+  }
   updateHttpWarning();
 }
 
-// REST 模式選非 27124（HTTPS）埠時，提醒 API Key 會以 HTTP 明文送出
 function updateHttpWarning() {
-  const isRest = storageModeSelect.value !== 'native';
-  httpWarning.hidden = !(isRest && readPort() !== 27124);
+  httpWarning.hidden = !(storageProviderSelect.value === STORAGE_PROVIDERS.OBSIDIAN_REST && readPort() !== 27124);
 }
 
-async function getNativeStatus() {
-  return chrome.runtime.sendMessage({ type: 'GET_NATIVE_STATUS' });
+function updateNativeSetupHelp(status) {
+  const needsUpdate = status?.code === 'NATIVE_HOST_UPDATE_REQUIRED';
+  const needsSetup = needsUpdate
+    || status?.code === 'NATIVE_HOST_NOT_FOUND'
+    || status?.code === 'NATIVE_HOST_FORBIDDEN';
+  nativeSetupHelp.hidden = !needsSetup;
+  if (!needsSetup) return;
+  if (needsUpdate) {
+    nativeSetupMessage.textContent = 'Helper 版本需要更新';
+    nativeSetupHint.textContent = '重新執行最新版 Helper 安裝程式，再重新載入擴充功能。';
+    return;
+  }
+  nativeSetupMessage.textContent = status.code === 'NATIVE_HOST_FORBIDDEN'
+    ? 'Helper 需要更新授權'
+    : '還差一步：安裝本機 Helper';
+  nativeSetupHint.textContent = status.code === 'NATIVE_HOST_FORBIDDEN'
+    ? '重新執行最新版 Helper 安裝程式，再回到這裡檢查。'
+    : '下載同版本的 macOS Helper 並執行安裝程式，再回到這裡檢查。';
 }
 
-// 載入已儲存的設定
-async function loadSettings() {
-  const settings = await chrome.storage.local.get(['storageMode', 'apiKey', 'port', 'basePath', 'mediaPath', 'vaultName']);
-  storageModeSelect.value = resolveStorageMode(settings);
-  updateModeUI();
+function notesLocationValue(location) {
+  return location?.accountId && location?.folderId
+    ? `${location.accountId}\u001f${location.folderId}`
+    : '';
+}
 
-  if (settings.apiKey) {
-    apiKeyInput.value = settings.apiKey;
-  }
-  if (settings.port) {
-    portInput.value = settings.port;
-  }
-  if (settings.basePath) {
-    basePathInput.value = settings.basePath;
-  }
-  if (settings.mediaPath) {
-    mediaPathInput.value = settings.mediaPath;
-  }
+function renderNotesLocations(locations, selected, emptyText = '尚未載入') {
+  const available = Array.isArray(locations)
+    ? locations.filter(location => notesLocationValue(location))
+    : [];
+  const signature = JSON.stringify(available.map(location => [
+    location.accountId,
+    location.accountName,
+    location.folderId,
+    location.folderName
+  ])) + (available.length ? '' : `:${emptyText}`);
+  const selectedValue = notesLocationValue(selected);
 
-  if (settings.vaultName) vaultName.textContent = settings.vaultName;
-
-  updateHttpWarning();
-
-  if (storageModeSelect.value === 'native') {
-    try {
-      const status = await getNativeStatus();
-      if (status?.vaultName) vaultName.textContent = status.vaultName;
-      settingsPanel.open = !status?.ok || !status?.configured;
-    } catch {
-      settingsPanel.open = true;
+  if (notesLocationSelect.dataset.locationsSignature === signature) {
+    if ([...notesLocationSelect.options].some(option => option.value === selectedValue)) {
+      notesLocationSelect.value = selectedValue;
     }
-  } else {
-    settingsPanel.open = !settings.apiKey;
+    notesLocationSelect.disabled = available.length === 0;
+    return;
+  }
+
+  notesLocationSelect.textContent = '';
+  if (!available.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = emptyText;
+    notesLocationSelect.appendChild(option);
+  }
+  for (const location of available) {
+    const option = document.createElement('option');
+    option.value = notesLocationValue(location);
+    option.textContent = `${location.accountName} › ${location.folderName}`;
+    option.dataset.accountId = location.accountId;
+    option.dataset.accountName = location.accountName;
+    option.dataset.folderId = location.folderId;
+    option.dataset.folderName = location.folderName;
+    notesLocationSelect.appendChild(option);
+  }
+  notesLocationSelect.dataset.locationsSignature = signature;
+  if ([...notesLocationSelect.options].some(option => option.value === selectedValue)) {
+    notesLocationSelect.value = selectedValue;
+  }
+  notesLocationSelect.disabled = available.length === 0;
+}
+
+async function loadNotesLocations(selected = loadedSettings.appleNotesSettings) {
+  if (notesLocationsPromise) return notesLocationsPromise;
+  notesLocationsPromise = (async () => {
+    const hadLocations = [...notesLocationSelect.options].some(option => option.value);
+    if (!hadLocations) notesLocationSelect.disabled = true;
+    refreshNotesBtn.disabled = true;
+    refreshNotesBtn.textContent = '更新中…';
+    refreshNotesBtn.setAttribute('aria-busy', 'true');
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'LIST_NOTES_LOCATIONS' });
+      updateNativeSetupHelp(response);
+      if (!response?.ok) throw new Error(response?.error || '無法讀取 Apple 備忘錄資料夾');
+      const cache = { locations: response.locations || [], fetchedAt: Date.now() };
+      await chrome.storage.local.set({ [NOTES_LOCATIONS_CACHE_KEY]: cache });
+      loadedSettings[NOTES_LOCATIONS_CACHE_KEY] = cache;
+      renderNotesLocations(cache.locations, selected, '找不到可用資料夾');
+    } catch (error) {
+      if (!hadLocations) renderNotesLocations([], selected, '無法載入資料夾');
+      if (storageProviderSelect.value === STORAGE_PROVIDERS.APPLE_NOTES) showStatus(error.message, 'error');
+    } finally {
+      refreshNotesBtn.disabled = false;
+      refreshNotesBtn.textContent = '重新載入';
+      refreshNotesBtn.removeAttribute('aria-busy');
+    }
+  })();
+  try {
+    return await notesLocationsPromise;
+  } finally {
+    notesLocationsPromise = null;
   }
 }
 
-// 儲存設定
+async function loadSettings() {
+  loadedSettings = await chrome.storage.local.get([
+    'storageProvider',
+    'markdownFolderSettings',
+    'obsidianRestSettings',
+    'appleNotesSettings',
+    NOTES_LOCATIONS_CACHE_KEY
+  ]);
+  storageProviderSelect.value = resolveStorageProvider(loadedSettings);
+  const markdown = loadedSettings.markdownFolderSettings || {};
+  const rest = loadedSettings.obsidianRestSettings || {};
+  apiKeyInput.value = rest.apiKey || '';
+  portInput.value = rest.port || 27123;
+  vaultName.textContent = markdown.folderName || '尚未選擇';
+  updateModeUI(true);
+  const selectedNotes = loadedSettings.appleNotesSettings || {};
+  const cachedLocations = loadedSettings[NOTES_LOCATIONS_CACHE_KEY]?.locations;
+  const initialLocations = Array.isArray(cachedLocations) && cachedLocations.length
+    ? cachedLocations
+    : notesLocationValue(selectedNotes)
+      ? [selectedNotes]
+      : [];
+  renderNotesLocations(initialLocations, selectedNotes);
+  const active = storageProviderSelect.value;
+  settingsPanel.open = active === STORAGE_PROVIDERS.MARKDOWN_FOLDER
+    ? !markdown.folderName
+    : active === STORAGE_PROVIDERS.APPLE_NOTES
+      ? !loadedSettings.appleNotesSettings?.folderId
+      : !rest.apiKey;
+  if (active === STORAGE_PROVIDERS.APPLE_NOTES && !initialLocations.length) {
+    void loadNotesLocations(selectedNotes);
+  }
+}
+
+function selectedNotesLocation() {
+  const option = notesLocationSelect.selectedOptions[0];
+  if (!option?.value) return null;
+  return {
+    accountId: option.dataset.accountId,
+    accountName: option.dataset.accountName,
+    folderId: option.dataset.folderId,
+    folderName: option.dataset.folderName
+  };
+}
+
 async function saveSettings() {
-  const storageMode = storageModeSelect.value;
-  const apiKey = apiKeyInput.value.trim();
-  const port = readPort();
+  const provider = storageProviderSelect.value;
   const basePath = basePathInput.value.trim() || DEFAULT_BASE_PATH;
   const mediaPath = mediaPathInput.value.trim() || DEFAULT_MEDIA_PATH;
+  const updates = { storageProvider: provider };
 
-  if (storageMode === 'native') {
-    let nativeStatus;
-    try {
-      nativeStatus = await getNativeStatus();
-    } catch (error) {
-      showStatus(`無法連線本機 Helper · ${error.message}`, 'error');
+  if (provider === STORAGE_PROVIDERS.MARKDOWN_FOLDER) {
+    const response = await chrome.runtime.sendMessage({ type: 'GET_NATIVE_STATUS' });
+    updateNativeSetupHelp(response);
+    if (!response?.ok || !response?.configured) {
+      showStatus(response?.error || '請先安裝 Helper 並選擇資料夾', 'error');
       return;
     }
-    if (!nativeStatus?.ok || !nativeStatus?.configured) {
-      showStatus(nativeStatus?.error ? `本機 Helper 無法使用 · ${nativeStatus.error}` : '請先安裝 Helper 並選擇 Vault', 'error');
-      return;
-    }
+    updates.markdownFolderSettings = {
+      ...(loadedSettings.markdownFolderSettings || {}),
+      basePath,
+      mediaPath,
+      folderName: response.folderName || response.vaultName,
+      isObsidianVault: response.isObsidianVault === true
+    };
+  } else if (provider === STORAGE_PROVIDERS.OBSIDIAN_REST) {
+    const apiKey = apiKeyInput.value.trim();
+    const port = readPort();
+    if (!apiKey) return showStatus('請輸入 API Key', 'error');
+    if (port < 1 || port > 65535) return showStatus('Port 必須介於 1 到 65535', 'error');
+    updates.obsidianRestSettings = { apiKey, port, basePath, mediaPath };
   } else {
-    if (!apiKey) {
-      showStatus('請輸入 API Key', 'error');
-      return;
-    }
-    if (port < 1 || port > 65535) {
-      showStatus('Port 必須介於 1 到 65535', 'error');
-      portInput.focus();
-      return;
-    }
+    const location = selectedNotesLocation();
+    if (!location) return showStatus('請選擇 Apple 備忘錄的帳號與資料夾', 'error');
+    updates.appleNotesSettings = location;
   }
 
-  await chrome.storage.local.set({ storageMode, apiKey, port, basePath, mediaPath });
+  await chrome.storage.local.set(updates);
+  loadedSettings = { ...loadedSettings, ...updates };
   showStatus('設定已儲存', 'success');
   await checkConnection();
+  chrome.runtime.sendMessage({ type: 'RETRY_QUEUE' });
 }
 
-async function chooseVault() {
-  chooseVaultBtn.disabled = true;
+async function chooseFolder() {
+  chooseFolderBtn.disabled = true;
   try {
     const response = await chrome.runtime.sendMessage({ type: 'CHOOSE_NATIVE_VAULT' });
-    if (!response?.ok) throw new Error(response?.error || '本機 Helper 無法選擇 Vault');
-    storageModeSelect.value = 'native';
-    updateModeUI();
-    vaultName.textContent = response.vaultName;
-    showStatus(`已連接 Vault：${response.vaultName}`, 'success');
+    updateNativeSetupHelp(response);
+    if (!response?.ok) throw new Error(response?.error || '本機 Helper 無法選擇資料夾');
+    storageProviderSelect.value = STORAGE_PROVIDERS.MARKDOWN_FOLDER;
+    loadedSettings.storageProvider = STORAGE_PROVIDERS.MARKDOWN_FOLDER;
+    loadedSettings.markdownFolderSettings = {
+      ...(loadedSettings.markdownFolderSettings || {}),
+      folderName: response.folderName || response.vaultName,
+      isObsidianVault: response.isObsidianVault === true
+    };
+    vaultName.textContent = response.folderName || response.vaultName;
+    updateModeUI(true);
+    showStatus(`已選擇：${vaultName.textContent}`, 'success');
     await checkConnection();
-    chrome.runtime.sendMessage({ type: 'RETRY_QUEUE' });
   } catch (error) {
-    showStatus(`無法選擇 Vault · ${error.message}`, 'error');
+    showStatus(`無法選擇資料夾 · ${error.message}`, 'error');
   } finally {
-    chooseVaultBtn.disabled = false;
+    chooseFolderBtn.disabled = false;
   }
 }
 
-// 測試連線
 async function testConnection() {
-  if (storageModeSelect.value === 'native') {
-    testBtn.disabled = true;
-    testBtn.textContent = '檢查中…';
-    try {
-      const nativeStatus = await getNativeStatus();
-      if (nativeStatus?.vaultName) vaultName.textContent = nativeStatus.vaultName;
-      if (nativeStatus?.ok && nativeStatus?.configured) {
-        showStatus(`本機 Helper 已連線 · ${nativeStatus.vaultName}`, 'success');
-        chrome.runtime.sendMessage({ type: 'RETRY_QUEUE' });
-      } else {
-        showStatus(nativeStatus?.error ? `本機 Helper 無法使用 · ${nativeStatus.error}` : '請先安裝 Helper 並選擇 Vault', 'error');
-      }
-      await checkConnection();
-    } catch (error) {
-      showStatus(`Helper 檢查失敗 · ${error.message}`, 'error');
-    } finally {
-      testBtn.disabled = false;
-      updateModeUI();
-    }
-    return;
-  }
-
-  const apiKey = apiKeyInput.value.trim();
-  const port = readPort();
-
-  if (port < 1 || port > 65535) {
-    showStatus('Port 必須介於 1 到 65535', 'error');
-    portInput.focus();
-    return;
-  }
-
-  if (!apiKey) {
-    showStatus('請先輸入 API Key', 'error');
-    return;
-  }
-
   testBtn.disabled = true;
-  testBtn.textContent = '測試中…';
-  showStatus('正在連線…', 'info');
-
+  showStatus('正在檢查…', 'info');
   try {
-    const response = await pingRestApi(port, apiKey);
-
-    if (response.ok) {
-      const data = await response.json();
-      showStatus(`連線成功 · ${data.service || 'Obsidian'}`, 'success');
-    } else if (response.status === 401) {
-      showStatus('API Key 無效', 'error');
-    } else {
-      showStatus(`連線失敗 · HTTP ${response.status}`, 'error');
-    }
-  } catch (error) {
-    if (error.message.includes('Failed to fetch')) {
-      showStatus('無法連線，請確認 Obsidian 已開啟且 Local REST API 插件已啟用', 'error');
-    } else {
-      showStatus(`連線錯誤 · ${error.message}`, 'error');
-    }
+    await saveSettings();
   } finally {
     testBtn.disabled = false;
-    testBtn.textContent = '測試連線';
+    updateModeUI();
   }
 }
 
-// 顯示狀態訊息
 function showStatus(message, type) {
   statusDiv.textContent = message;
   statusDiv.className = `status ${type}`;
+}
+
+function clearProviderStatus() {
+  statusDiv.textContent = '';
+  statusDiv.className = 'status';
+  clearTimeout(actionStatusTimer);
+  actionStatus.textContent = '';
+  actionStatus.className = 'status global-status';
 }
 
 function showActionStatus(message, type) {
   clearTimeout(actionStatusTimer);
   actionStatus.textContent = message;
   actionStatus.className = `status global-status ${type}`;
-  actionStatusTimer = setTimeout(() => {
-    actionStatus.className = 'status global-status';
-  }, 3500);
+  actionStatusTimer = setTimeout(() => { actionStatus.className = 'status global-status'; }, 3500);
 }
 
-// 開啟 popup 時自動檢查連線狀態
+function renderStoredConnectionStatus() {
+  const provider = resolveStorageProvider(loadedSettings);
+  if (provider !== STORAGE_PROVIDERS.APPLE_NOTES) {
+    connDot.className = 'dot';
+    connText.textContent = '準備檢查連線…';
+    return;
+  }
+  const notes = loadedSettings.appleNotesSettings || {};
+  if (notes.accountId && notes.folderId) {
+    connDot.className = 'dot ready';
+    connText.textContent = `Apple 備忘錄已設定 · ${notes.folderName || notes.accountName}`;
+  } else {
+    connDot.className = 'dot fail';
+    connText.textContent = '尚未選擇 Apple 備忘錄資料夾';
+  }
+}
+
 async function checkConnection() {
-  const settings = await chrome.storage.local.get(['storageMode', 'apiKey', 'port', 'vaultName']);
-
-  if (resolveStorageMode(settings) === 'native') {
-    try {
-      const nativeStatus = await getNativeStatus();
-      if (nativeStatus?.vaultName) vaultName.textContent = nativeStatus.vaultName;
-      if (nativeStatus?.ok && nativeStatus?.configured) {
-        connDot.className = 'dot ok';
-        connText.textContent = `本機 Helper 已連線 · ${nativeStatus.vaultName}`;
-      } else {
-        connDot.className = 'dot fail';
-        connText.textContent = nativeStatus?.error ? '本機 Helper 無法使用' : '尚未選擇 Vault';
-      }
-    } catch {
-      connDot.className = 'dot fail';
-      connText.textContent = '本機 Helper 尚未安裝';
-    }
-    return;
-  }
-
-  if (!settings.apiKey) {
-    connDot.className = 'dot fail';
-    connText.textContent = '尚未設定 API Key';
-    return;
-  }
-
+  const requestId = ++connectionRequestId;
+  const expectedProvider = resolveStorageProvider(loadedSettings);
+  const isCurrentRequest = () => (
+    requestId === connectionRequestId
+    && resolveStorageProvider(loadedSettings) === expectedProvider
+  );
   try {
-    const response = await pingRestApi(settings.port || 27123, settings.apiKey);
-    if (response.ok) {
-      connDot.className = 'dot ok';
-      connText.textContent = 'Obsidian 已連線';
+    const response = await chrome.runtime.sendMessage({ type: 'GET_STORAGE_STATUS' });
+    if (!isCurrentRequest() || (response?.provider && response.provider !== expectedProvider)) return;
+    updateNativeSetupHelp(response);
+    connDot.className = response?.ok && response?.configured !== false ? 'dot ok' : 'dot fail';
+    if (!response?.ok) {
+      connText.textContent = response?.error || `${providerLabel(response?.provider)}無法使用`;
+    } else if (response.provider === STORAGE_PROVIDERS.MARKDOWN_FOLDER) {
+      connText.textContent = response.configured
+        ? `本機資料夾已連線 · ${response.folderName || response.vaultName}`
+        : '尚未選擇 Markdown 資料夾';
+      if (response.folderName || response.vaultName) vaultName.textContent = response.folderName || response.vaultName;
+    } else if (response.provider === STORAGE_PROVIDERS.APPLE_NOTES) {
+      connText.textContent = response.configured ? 'Apple 備忘錄已連線' : '備忘錄資料夾不存在';
     } else {
-      connDot.className = 'dot fail';
-      connText.textContent = response.status === 401 ? 'API Key 無效' : `連線異常 (HTTP ${response.status})`;
+      connText.textContent = response.ok ? 'Obsidian 已連線' : 'Obsidian 未連線';
     }
-  } catch {
+  } catch (error) {
+    if (!isCurrentRequest()) return;
     connDot.className = 'dot fail';
-    connText.textContent = 'Obsidian 未連線';
+    connText.textContent = error.message || '儲存目的地無法連線';
   }
 }
 
-// 顯示待補存佇列數量
 async function renderQueueInfo() {
-  const stored = await chrome.storage.local.get(['offlineQueue', 'storageMode', 'apiKey']);
-  const offlineQueue = stored.offlineQueue || [];
+  const { offlineQueue = [] } = await chrome.storage.local.get('offlineQueue');
   queueInfo.hidden = offlineQueue.length === 0;
-  if (offlineQueue.length > 0) {
-    const native = resolveStorageMode(stored) === 'native';
-    queueInfo.textContent = `待補存 ${offlineQueue.length} 則（${native ? '本機 Helper 恢復' : 'Obsidian 連線'}後自動補存）`;
-  }
+  if (!offlineQueue.length) return;
+  const labels = [...new Set(offlineQueue.map(item => providerLabel(item.provider || item.ref?.provider)))];
+  queueInfo.textContent = `待補存 ${offlineQueue.length} 則（原目的地：${labels.join('、')}，恢復後自動補存）`;
 }
 
-// 格式化時間 (MM/DD HH:mm)
 function formatTime(iso) {
-  const t = new Date(iso);
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${pad(t.getMonth() + 1)}/${pad(t.getDate())} ${pad(t.getHours())}:${pad(t.getMinutes())}`;
+  const time = new Date(iso);
+  const pad = number => String(number).padStart(2, '0');
+  return `${pad(time.getMonth() + 1)}/${pad(time.getDate())} ${pad(time.getHours())}:${pad(time.getMinutes())}`;
 }
 
 function fallbackPreview(filename) {
-  return filename
+  return String(filename || '')
     .replace(/^\d{4}-\d{2}-\d{2}_\d{4}_/, '')
     .replace(/^_草稿_/, '')
     .replace(/\.md$/i, '')
@@ -310,18 +394,14 @@ function showPreview(anchor, text) {
   previewText.textContent = text;
   previewPopover.hidden = false;
   anchor.setAttribute('aria-describedby', 'previewPopover');
-
   const itemRect = anchor.closest('li').getBoundingClientRect();
   const width = Math.min(320, window.innerWidth - 24);
   previewPopover.style.width = `${width}px`;
-  const left = Math.max(12, Math.min(itemRect.left, window.innerWidth - width - 12));
-  const popoverHeight = previewPopover.offsetHeight;
+  previewPopover.style.left = `${Math.max(12, Math.min(itemRect.left, window.innerWidth - width - 12))}px`;
   const below = itemRect.bottom + 7;
-  const top = below + popoverHeight <= window.innerHeight - 12
+  previewPopover.style.top = `${below + previewPopover.offsetHeight <= window.innerHeight - 12
     ? below
-    : Math.max(12, itemRect.top - popoverHeight - 7);
-  previewPopover.style.left = `${left}px`;
-  previewPopover.style.top = `${top}px`;
+    : Math.max(12, itemRect.top - previewPopover.offsetHeight - 7)}px`;
 }
 
 function hidePreview(anchor) {
@@ -331,35 +411,30 @@ function hidePreview(anchor) {
   if (!anchor || anchor === activePreviewAnchor) activePreviewAnchor = null;
 }
 
-// 建立一列清單項目：箭頭開啟 Obsidian，hover/focus 顯示內容摘要
-function buildListItem(filename, path, metaText, preview, kind) {
+function buildListItem(filename, ref, metaText, preview, kind, key = '') {
   const li = document.createElement('li');
-
   const link = document.createElement('a');
   link.className = 'activity-open-link';
   link.href = '#';
-  link.setAttribute('aria-label', `在 Obsidian 中開啟 ${filename}`);
-
+  link.setAttribute('aria-label', `開啟 ${filename}`);
   const copy = document.createElement('span');
   copy.className = 'activity-copy';
-
   const name = document.createElement('span');
   name.className = 'activity-filename';
   name.textContent = filename;
-
   const meta = document.createElement('small');
   meta.textContent = metaText;
-
   const openIcon = document.createElement('span');
   openIcon.className = 'activity-open-icon';
   openIcon.setAttribute('aria-hidden', 'true');
-  openIcon.textContent = '↗';
-
+  openIcon.textContent = ref ? '↗' : '•';
   copy.append(name, meta);
   link.append(copy, openIcon);
-  link.addEventListener('click', (e) => {
-    e.preventDefault();
-    chrome.tabs.create({ url: 'obsidian://open?file=' + encodeURIComponent(path) });
+  link.addEventListener('click', async (event) => {
+    event.preventDefault();
+    if (!ref) return;
+    const response = await chrome.runtime.sendMessage({ type: 'OPEN_STORAGE_ACTIVITY', ref });
+    if (!response?.ok) showActionStatus(response?.error || '無法開啟項目', 'error');
   });
   const previewContent = preview || fallbackPreview(filename);
   li.addEventListener('mouseenter', () => showPreview(link, previewContent));
@@ -367,13 +442,12 @@ function buildListItem(filename, path, metaText, preview, kind) {
   link.addEventListener('focus', () => showPreview(link, previewContent));
   link.addEventListener('blur', () => hidePreview(link));
   li.appendChild(link);
-
   const deleteButton = document.createElement('button');
   deleteButton.type = 'button';
   deleteButton.className = 'activity-delete-btn';
   deleteButton.textContent = '刪';
   deleteButton.setAttribute('aria-label', `刪除 ${filename}`);
-  deleteButton.addEventListener('click', () => deleteActivityItem(deleteButton, kind, filename, path));
+  deleteButton.addEventListener('click', () => deleteActivityItem(deleteButton, kind, filename, ref, key));
   li.appendChild(deleteButton);
   return li;
 }
@@ -385,107 +459,84 @@ function buildEmptyState(message) {
   return li;
 }
 
-async function deleteActivityItem(button, kind, filename, path) {
-  if (kind === 'recent' && !window.confirm(
-    `確定要從 Obsidian 刪除「${filename}」？\n\n社群平台上的原貼文不會被刪除。`
-  )) return;
-
+async function deleteActivityItem(button, kind, filename, ref, key) {
+  if (kind === 'recent' && !window.confirm(`確定要從儲存目的地刪除「${filename}」？\n\n社群平台上的原貼文不會被刪除。`)) return;
   button.disabled = true;
   hidePreview();
   try {
-    const response = await chrome.runtime.sendMessage({
-      type: 'DELETE_VAULT_ACTIVITY',
-      kind,
-      path
-    });
-    if (!response?.ok) {
-      showActionStatus(response?.error || 'Vault 貼文刪除失敗', 'error');
-      return;
-    }
-    showActionStatus(`已從 Obsidian 刪除 · ${filename}`, 'success');
+    const response = await chrome.runtime.sendMessage({ type: 'DELETE_VAULT_ACTIVITY', kind, ref, key });
+    if (!response?.ok) throw new Error(response?.error || '貼文刪除失敗');
+    showActionStatus(`已刪除 · ${filename}`, 'success');
     await Promise.all([renderDrafts(), renderRecent()]);
   } catch (error) {
-    showActionStatus(`Vault 貼文刪除失敗 · ${error.message}`, 'error');
+    showActionStatus(`貼文刪除失敗 · ${error.message}`, 'error');
   } finally {
     button.disabled = false;
   }
 }
 
-// 顯示未發佈草稿（打字中自動暫存的內容）
 async function renderDrafts() {
   const stored = await chrome.storage.local.get(['draftStatus_x', 'draftStatus_threads']);
   const drafts = [
-    [platformDisplayName('x'), stored.draftStatus_x],
-    [platformDisplayName('threads'), stored.draftStatus_threads]
-  ].filter(([, d]) => d);
-
+    ['draftStatus_x', platformDisplayName('x'), stored.draftStatus_x],
+    ['draftStatus_threads', platformDisplayName('threads'), stored.draftStatus_threads]
+  ].filter(([, , draft]) => draft);
   draftSection.hidden = drafts.length === 0;
   draftList.textContent = '';
-
-  for (const [platformName, d] of drafts) {
+  for (const [key, platform, draft] of drafts) {
     draftList.appendChild(buildListItem(
-      d.filename,
-      d.path,
-      `${platformName} · 最後暫存 ${formatTime(d.savedAt)}`,
-      d.preview,
-      'draft'
+      draft.filename,
+      draft.ref,
+      `${platform} · 最後暫存 ${formatTime(draft.savedAt)}`,
+      draft.preview,
+      'draft',
+      key
     ));
   }
 }
 
 async function clearAutoDrafts() {
   clearDraftsBtn.disabled = true;
-  clearDraftsBtn.textContent = '清除中…';
-  hidePreview();
   try {
     const response = await chrome.runtime.sendMessage({ type: 'CLEAR_AUTO_DRAFTS' });
-    if (!response?.ok) {
-      const partial = response?.cleared > 0 ? `已清除 ${response.cleared} 則；` : '';
-      showActionStatus(`${partial}${response?.error || '草稿清除失敗'}`, 'error');
-      return;
-    }
-    showActionStatus(response.cleared > 0 ? `已清除 ${response.cleared} 則自動暫存` : '目前沒有自動暫存', 'success');
+    if (!response?.ok) throw new Error(response?.error || '草稿清除失敗');
+    showActionStatus(response.cleared ? `已清除 ${response.cleared} 則自動暫存` : '目前沒有自動暫存', 'success');
     await renderDrafts();
   } catch (error) {
     showActionStatus(`草稿清除失敗 · ${error.message}`, 'error');
   } finally {
     clearDraftsBtn.disabled = false;
-    clearDraftsBtn.textContent = '清除全部';
   }
 }
 
-async function syncVaultActivity() {
+async function syncStorageActivity() {
   try {
-    const response = await chrome.runtime.sendMessage({ type: 'SYNC_VAULT_ACTIVITY' });
-    if (!response?.ok) {
-      showActionStatus(`Vault 狀態同步失敗 · ${response?.error || '背景程序沒有回應'}`, 'error');
-      return;
-    }
+    const response = await chrome.runtime.sendMessage({
+      type: 'SYNC_VAULT_ACTIVITY',
+      skipAppleNotes: true
+    });
+    if (!response?.ok) throw new Error(response?.error || '背景程序沒有回應');
     const removed = (response.removedDrafts || 0) + (response.removedRecent || 0);
-    if (removed > 0) {
-      showActionStatus(`已同步 Obsidian 的刪除狀態 · ${removed} 則`, 'success');
-    }
+    if (removed) showActionStatus(`已同步刪除狀態 · ${removed} 則`, 'success');
   } catch (error) {
-    showActionStatus(`Vault 狀態同步失敗 · ${error.message}`, 'error');
+    showActionStatus(`狀態同步失敗 · ${error.message}`, 'error');
   }
 }
 
-// 顯示最近儲存清單（已發佈的貼文），點擊可在 Obsidian 開啟
 async function renderRecent() {
   const { recentSaves = [] } = await chrome.storage.local.get('recentSaves');
+  const activeProvider = resolveStorageProvider(loadedSettings);
+  const visibleRecentSaves = recentSaves.filter(item => item.ref?.provider === activeProvider);
   recentList.textContent = '';
-
-  if (recentSaves.length === 0) {
-    recentList.appendChild(buildEmptyState('發佈貼文後，最近的存檔會顯示在這裡'));
+  if (!visibleRecentSaves.length) {
+    recentList.appendChild(buildEmptyState('目前儲存目的地尚無最近存檔'));
     return;
   }
-
-  for (const item of recentSaves) {
-    const platformName = platformDisplayName(item.platform);
+  for (const item of visibleRecentSaves) {
     recentList.appendChild(buildListItem(
       item.filename,
-      item.path,
-      `${platformName} · ${formatTime(item.savedAt)}`,
+      item.ref,
+      `${platformDisplayName(item.platform)} · ${providerLabel(item.ref?.provider)} · ${formatTime(item.savedAt)}`,
       item.preview,
       'recent'
     ));
@@ -493,52 +544,67 @@ async function renderRecent() {
 }
 
 function toggleApiKeyVisibility() {
-  const isVisible = apiKeyInput.type === 'text';
-  apiKeyInput.type = isVisible ? 'password' : 'text';
-  toggleApiKey.textContent = isVisible ? '顯示' : '隱藏';
-  toggleApiKey.setAttribute('aria-label', isVisible ? '顯示 API Key' : '隱藏 API Key');
-  toggleApiKey.setAttribute('aria-pressed', String(!isVisible));
+  const visible = apiKeyInput.type === 'text';
+  apiKeyInput.type = visible ? 'password' : 'text';
+  toggleApiKey.textContent = visible ? '顯示' : '隱藏';
+  toggleApiKey.setAttribute('aria-pressed', String(!visible));
   apiKeyInput.focus();
 }
 
-// popup 開著的時候，儲存狀態變動即時反映；只重繪實際變動的區塊
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
   const draftsChanged = changes.draftStatus_x || changes.draftStatus_threads;
-  if (draftsChanged || changes.recentSaves) {
-    // 重繪會移除 hover 中的清單項目，先收掉預覽避免留下過期的孤兒 popover
-    hidePreview();
-  }
+  if (draftsChanged || changes.recentSaves) hidePreview();
   if (draftsChanged) renderDrafts();
-  if (changes.recentSaves) renderRecent();
+  if (changes.recentSaves && !changes.storageProvider) renderRecent();
   if (changes.offlineQueue) renderQueueInfo();
-  if (changes.storageMode || changes.vaultName) checkConnection();
+  if (changes.storageProvider || changes.markdownFolderSettings || changes.appleNotesSettings || changes.obsidianRestSettings) {
+    for (const key of ['storageProvider', 'markdownFolderSettings', 'appleNotesSettings', 'obsidianRestSettings']) {
+      if (changes[key]) loadedSettings[key] = changes[key].newValue;
+    }
+    if (changes.storageProvider) {
+      hidePreview();
+      void renderRecent();
+    }
+    if (resolveStorageProvider(loadedSettings) === STORAGE_PROVIDERS.APPLE_NOTES) {
+      renderStoredConnectionStatus();
+    } else {
+      void checkConnection();
+    }
+  }
 });
 
-// 事件綁定
-settingsForm.addEventListener('submit', (event) => {
-  event.preventDefault();
-  saveSettings();
-});
+settingsForm.addEventListener('submit', (event) => { event.preventDefault(); saveSettings(); });
 testBtn.addEventListener('click', testConnection);
 toggleApiKey.addEventListener('click', toggleApiKeyVisibility);
-chooseVaultBtn.addEventListener('click', chooseVault);
+chooseFolderBtn.addEventListener('click', chooseFolder);
+refreshNotesBtn.addEventListener('click', () => loadNotesLocations(selectedNotesLocation()));
 clearDraftsBtn.addEventListener('click', clearAutoDrafts);
-storageModeSelect.addEventListener('change', updateModeUI);
+storageProviderSelect.addEventListener('change', () => {
+  connectionRequestId++;
+  clearProviderStatus();
+  connDot.className = 'dot';
+  connText.textContent = `切換至 ${providerLabel(storageProviderSelect.value)} · 儲存後生效`;
+  updateModeUI(true);
+  if (
+    storageProviderSelect.value === STORAGE_PROVIDERS.APPLE_NOTES
+    && ![...notesLocationSelect.options].some(option => option.value)
+  ) {
+    void loadNotesLocations(loadedSettings.appleNotesSettings);
+  }
+});
 portInput.addEventListener('input', updateHttpWarning);
 document.addEventListener('scroll', () => hidePreview(), true);
-window.addEventListener('focus', async () => {
-  await syncVaultActivity();
-  await Promise.all([renderDrafts(), renderRecent()]);
-});
 
-// 初始化
 async function initialize() {
   document.getElementById('version').textContent = 'v' + chrome.runtime.getManifest().version;
   await loadSettings();
-  await checkConnection();
-  await syncVaultActivity();
+  renderStoredConnectionStatus();
   await Promise.all([renderQueueInfo(), renderDrafts(), renderRecent()]);
+  void syncStorageActivity();
+  if (resolveStorageProvider(loadedSettings) !== STORAGE_PROVIDERS.APPLE_NOTES) {
+    void checkConnection();
+  }
 }
 
 initialize();

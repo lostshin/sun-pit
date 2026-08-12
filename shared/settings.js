@@ -3,10 +3,22 @@
 const DEFAULT_BASE_PATH = '個人創作/社群推文';
 const DEFAULT_MEDIA_PATH = '附件/Social Post to Obsidian';
 
-// 舊版 'direct' 一律視為 native；未設定時有 API Key 才推定為 rest
+const STORAGE_PROVIDERS = Object.freeze({
+  MARKDOWN_FOLDER: 'markdown-folder',
+  OBSIDIAN_REST: 'obsidian-rest',
+  APPLE_NOTES: 'apple-notes'
+});
+
+function resolveStorageProvider(settings) {
+  return settings.storageProvider || STORAGE_PROVIDERS.MARKDOWN_FOLDER;
+}
+
+// 僅供舊的 Markdown 共用函式判斷傳輸方式；持久化 schema 使用 storageProvider。
 function resolveStorageMode(settings) {
-  if (settings.storageMode === 'direct') return 'native';
-  return settings.storageMode || (settings.apiKey ? 'rest' : 'native');
+  const provider = resolveStorageProvider(settings);
+  if (provider === STORAGE_PROVIDERS.OBSIDIAN_REST) return 'rest';
+  if (provider === STORAGE_PROVIDERS.APPLE_NOTES) return 'apple-notes';
+  return 'native';
 }
 
 // 平台顯示名稱；short 供檔名使用——檔名不能含 '/'，所以檔名用 'Twitter' 而非 'Twitter/X'

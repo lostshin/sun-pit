@@ -3,10 +3,13 @@
   'use strict';
 
   const LOG = '[Social Post to Obsidian]';
+  const INPUT_SELECTOR = '[contenteditable="true"], [role="textbox"], textarea';
+  const SUBMIT_SELECTOR = '[role="button"], button[type="submit"]';
+  const COMPOSER_BOUNDARY_SELECTOR = 'main, [role="main"], nav, [role="navigation"]';
 
-  // 檢查按鈕是否是最終的「發佈」按鈕。
+  // 檢查按鈕是否是最終的「發佈」或「回覆」按鈕。
   // Threads 沒有可靠的 data-testid 可用，只能精確比對文字；
-  // 呼叫端已限定按鈕必須位於發文 dialog 內，避免誤抓頁面上其他含「Post」字樣的按鈕
+  // 呼叫端會再確認它與輸入框同屬一個局部 composer，避免誤抓頁面上的其他按鈕
   function isPostButton(element) {
     if (!element) return false;
 
@@ -14,30 +17,53 @@
     const text = element.textContent?.trim().toLowerCase() || '';
     const ariaLabel = element.getAttribute('aria-label')?.trim().toLowerCase() || '';
 
-    // 只匹配精確的「發佈」或「Post」按鈕
+    // 只匹配精確的發佈或回覆按鈕
     // 避免匹配「新增到串文」、「回覆選項」等其他按鈕
-    const exactPostKeywords = ['post', '發佈', '發布'];
+    const exactPostKeywords = ['post', 'reply', '發佈', '發布', '回覆'];
 
-    const isExactMatch = exactPostKeywords.some(keyword =>
+    return exactPostKeywords.some(keyword =>
       text === keyword || ariaLabel === keyword
     );
+  }
 
-    if (isExactMatch) {
-      console.log(LOG, 'Threads: 偵測到發佈按鈕', text);
+  // Threads 一般發文使用 dialog，但貼文頁回覆會使用沒有 role="dialog" 的 inline
+  // composer。從事件來源往上找「同時包含輸入框與精確送出按鈕」的最小容器，
+  // 並在 main/navigation 邊界前停止，避免退回整頁而把搜尋框當成草稿。
+  function findComposer(source) {
+    if (!source || typeof source.closest !== 'function') return null;
+
+    const dialog = source.closest('[role="dialog"]');
+    if (dialog) return dialog;
+
+    const boundary = source.closest(COMPOSER_BOUNDARY_SELECTOR);
+    let current = source.parentElement;
+    while (current
+      && current !== boundary
+      && current !== document.body
+      && current !== document.documentElement) {
+      const inputs = current.querySelectorAll?.(INPUT_SELECTOR) || [];
+      const buttons = current.querySelectorAll?.(SUBMIT_SELECTOR) || [];
+      if (inputs.length && Array.from(buttons).some(isPostButton)) return current;
+      current = current.parentElement;
     }
+    return null;
+  }
 
-    return isExactMatch;
+  function getComposer(source) {
+    const composer = findComposer(source);
+    if (composer) return composer;
+    // 測試與舊呼叫端未提供 source 時，仍只允許明確的 dialog，不 fallback 到 document。
+    return source ? null : document.querySelector('[role="dialog"]');
   }
 
   // 取得輸入框的文字內容（支援串文多則）
-  function getTextContent() {
-    // 限定在發文 dialog 內找輸入框；沒有 dialog 就不擷取，避免抓到搜尋框等其他欄位
-    const root = document.querySelector('[role="dialog"]');
+  function getTextContent(source) {
+    const root = getComposer(source);
     if (!root) {
-      console.log(LOG, 'Threads: 找不到發文 dialog');
+      console.log(LOG, 'Threads: 找不到 composer');
       return null;
     }
-    const inputs = root.querySelectorAll('[contenteditable="true"], [role="textbox"], textarea');
+    const inputs = root.querySelectorAll(INPUT_SELECTOR);
 
     if (!inputs || inputs.length === 0) {
       console.log(LOG, 'Threads: 找不到輸入框');
@@ -72,8 +98,8 @@
   }
 
   // 擷取引用貼文資訊（DOM 備援；正式資料以攔截到的發文 API 回應為準）
-  function getQuotedPost() {
-    const composer = document.querySelector('[role="dialog"]');
+  function getQuotedPost(source) {
+    const composer = getComposer(source);
     if (!composer) return null;
 
     // Threads 引用貼文容器有 data-pressable-container="true" 屬性
@@ -118,39 +144,74 @@
     };
   }
 
+  // Threads 的 create response 不會穩定提供被回覆貼文，只能靠 DOM。
+  //
+  // 貼文頁的 inline composer 有明確頁面 URL，可直接當 replyTo；dialog 可能是一般
+  // 發文，不能用頁面網址猜，只認 dialog 內顯示的母貼文連結。抓不到一律回 null。
+  function getReplyTo(source) {
+    const composer = getComposer(source);
+    if (!composer) return null;
+
+    if (source?.closest?.('[role="dialog"]')) {
+      const href = composer.querySelector('a[href*="/post/"]')?.getAttribute('href') || '';
+      const path = href.match(/\/@?([^/?#]+)\/post\/([^/?#]+)/);
+      return path ? `https://www.threads.com/@${path[1]}/post/${path[2]}` : null;
+    }
+
+    const match = String(window.location.href || '').match(
+      /^(https:\/\/(?:www\.)?threads\.(?:com|net)\/@[^/?#]+\/post\/[^/?#]+)/i
+    );
+    if (!match) return null;
+    return match[1].replace(
+      /^https:\/\/(?:www\.)?threads\.(?:com|net)/i,
+      'https://www.threads.com'
+    );
+  }
+
   const pipeline = SP2O.createPublishPipeline({
     platform: 'threads',
     label: 'Threads',
     parseResponse: SP2O.parseThreadsCreate,
     getTextContent: getTextContent,
     getQuoted: getQuotedPost,
-    // 只監聽發文 dialog 內的輸入框，避免搜尋框的文字被存成草稿
-    getDraftInputs: () => Array.from(
-      document.querySelectorAll('[contenteditable="true"], [role="textbox"], textarea')
-    ).filter((input) => input.closest('[role="dialog"]'))
+    getReplyTo: getReplyTo,
+    // 只監聽已確認屬於 dialog 或 inline composer 的輸入框；不接受整頁 fallback。
+    getDraftInputs: (source) => {
+      if (source) {
+        const composer = getComposer(source);
+        return composer ? Array.from(composer.querySelectorAll(INPUT_SELECTOR)) : [];
+      }
+      return Array.from(document.querySelectorAll(INPUT_SELECTOR)).filter(findComposer);
+    }
   });
 
   // 設定事件監聽
   function setupListener() {
     // 使用事件委派，在 capture phase 捕捉點擊
     document.addEventListener('click', (e) => {
-      const button = e.target.closest('[role="button"], button[type="submit"]');
+      const button = e.target.closest(SUBMIT_SELECTOR);
       if (!button) return;
 
-      // 發佈按鈕必定位於發文 dialog 內；文字比對只作精確備援
-      if (!button.closest('[role="dialog"]')) return;
       if (!isPostButton(button)) return;
+      if (!findComposer(button)) return;
 
-      pipeline.capturePost();
+      console.log(
+        LOG,
+        'Threads: 偵測到送出按鈕',
+        button.textContent?.trim().toLowerCase()
+          || button.getAttribute('aria-label')?.trim().toLowerCase()
+          || ''
+      );
+      pipeline.capturePost(button);
     }, true);
 
     // 鍵盤發文（Cmd/Ctrl+Enter）：舊版只偵測點擊，鍵盤發文會漏存
     document.addEventListener('keydown', (e) => {
       if (!(e.metaKey || e.ctrlKey) || e.key !== 'Enter') return;
-      if (!e.target.closest('[role="dialog"]')) return;
+      if (!findComposer(e.target)) return;
 
       console.log(LOG, 'Threads: 偵測到鍵盤發文 (Cmd/Ctrl+Enter)');
-      pipeline.capturePost();
+      pipeline.capturePost(e.target);
     }, true);
 
     console.log(LOG, 'Threads: 監聽已啟動');

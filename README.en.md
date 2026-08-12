@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  Turn X and Threads into your writing inbox. Publish once, and your posts flow into Obsidian without a capture button.
+  Turn X and Threads into your writing inbox. Publish once to a Markdown folder, Obsidian, or Apple Notes.
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@ The 20-second demo uses the actual extension popup with isolated sample data; it
 
 You are already capturing ideas on X or Threads. Why do the same work again after you publish?
 
-Social Post to Obsidian automatically turns published posts, threads, and static images into Markdown in your own Obsidian Vault. A single thought is saved. A long thread is saved in its original order.
+Social Post to Obsidian saves published posts, threads, and static images to a local Markdown folder, an Obsidian Vault, or Apple Notes. A single thought is saved. A long thread is saved in its original order.
 
 There is no capture button to remember, no copy-paste trip back to Obsidian, and no second round of formatting. Keep writing the way you already do. The note takes care of itself.
 
@@ -37,22 +37,23 @@ Social media is where the writing starts; Obsidian is where it stays. There is n
 
 ## What you get
 
-- Published X and Threads posts become Markdown notes automatically.
+- Published X and Threads posts become Markdown notes or Apple Notes automatically.
 - Individual posts, multi-post threads, and static images are preserved in their original order.
 - Every post stays in its own structured, copyable Markdown code block.
 - Source URLs, timestamps, reply context, quoted posts, and thread counts stay with the writing.
-- Drafts are saved automatically, and interrupted saves retry when Obsidian becomes available again.
+- Drafts are saved automatically, and interrupted saves retry to their original destination.
 - The popup lets you preview, open, or delete drafts and recent saves.
 - There is no third-party JavaScript, developer backend, telemetry, or advertising.
 
 ## Supported setups
 
-| Write method | Supported environment | Requirements |
+| Destination | Supported environment | Requirements and capabilities |
 | --- | --- | --- |
-| Native Helper (recommended) | macOS + Google Chrome | Included open-source Native Helper; no Obsidian plugin or API key |
-| Local REST API | macOS, Windows, Linux + Google Chrome | Obsidian community plugin [Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api) and an API key |
+| Local Markdown folder (recommended) | macOS + Google Chrome | Included open-source Native Helper; any writable folder, no `.obsidian`, plugin, or API key required |
+| Apple Notes | macOS + Google Chrome | Uses the system Notes automation interface; published posts, attachments, three-day reply merging, open, delete, and offline retry |
+| Obsidian Local REST API | macOS, Windows, Linux + Google Chrome | Obsidian community plugin [Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api) and an API key |
 
-Both methods require [Obsidian](https://obsidian.md/). The Native Helper currently supports macOS only; use Local REST API on other operating systems.
+Only the Local REST API destination requires [Obsidian](https://obsidian.md/). One destination is active at a time. The Native Helper currently supports macOS only.
 
 ## Install
 
@@ -78,7 +79,7 @@ Chrome Web Store extensions cannot install local programs automatically. If you 
    ./native/install-host.sh
    ```
 
-4. Reload the extension, open its popup, and choose your Vault.
+4. Reload the extension, open its popup, and choose a storage destination.
 
 Chrome cannot load a ZIP directly. Keep the extracted folder in the same location when updating a manual installation, or the extension ID, settings, and Native Helper authorization may change.
 
@@ -87,12 +88,13 @@ Detailed update and removal instructions are currently available in [Traditional
 ## Configure and use
 
 1. Pin the extension to the Chrome toolbar and open its popup.
-2. Native Helper mode: choose the root folder of a Vault containing `.obsidian`.
-3. Local REST API mode: enter the API key and HTTP port `27123` or HTTPS port `27124`, then test the connection.
-4. Adjust the note and media paths if needed, and save the settings.
-5. Refresh any open X or Threads tabs, then write and publish as usual.
+2. Local Markdown folder: choose any writable folder, including an Obsidian Vault if desired.
+3. Apple Notes: explicitly choose an account and folder. “On My Mac” stays local; an iCloud account follows Apple’s sync settings.
+4. Local REST API: enter the API key and HTTP port `27123` or HTTPS port `27124`, then test the connection.
+5. Adjust note and media paths for Markdown or REST if needed, then save.
+6. Refresh any open X or Threads tabs, then write and publish as usual.
 
-The popup separates unpublished drafts from recently saved posts. Opening a recent item jumps to the note in Obsidian; deleting it removes the Vault note, not the original social post.
+The popup separates unpublished drafts from recent saves. Open and delete actions are routed to the item’s original destination and never delete the social post.
 
 ## What gets saved
 
@@ -118,16 +120,17 @@ All post data stays between services and software chosen by the user:
 X / Threads tab
   → Chrome extension
   → macOS Native Helper or 127.0.0.1 Local REST API
-  → your Obsidian Vault
+  → a Markdown folder, Apple Notes, or an Obsidian Vault (one at a time)
 ```
 
-- `storage`: stores the write method, paths, optional REST API settings, offline queue, and recent-save metadata.
+- `storage`: stores destination settings, full local drafts in Apple Notes mode, the offline queue, and recent-save metadata.
 - `nativeMessaging`: communicates with the user-installed macOS Helper.
 - `notifications`: reports a completed published-post save when the originating tab no longer exists.
 - `alarms`: retries the offline queue and maintains Vault activity state.
 - X and Threads access: handles only posts the user is drafting or has just published and their related source context.
 - X and Meta media CDN access: downloads static images from those posts.
 - `127.0.0.1`: connects to the local Obsidian REST API plugin only when that mode is selected.
+- Apple Notes: the Helper requests macOS Automation access only when this destination is selected. Choosing an iCloud account means Apple may sync the notes.
 
 There is no developer-operated server, remote code, data sale, or data sharing. See the [Privacy Policy](PRIVACY.md) for details.
 
@@ -137,7 +140,8 @@ There is no developer-operated server, remote code, data sale, or data sharing. 
 - Only static images are downloaded; videos and animated GIFs are not synchronized.
 - Internal X and Threads APIs can change. Remove API keys, cookies, private post content, and full platform responses before reporting parser issues.
 - Threads image URLs use expiring signatures, so long offline periods may leave only remote URLs.
-- On an iCloud Vault, macOS may ask for permission to let Ruby or Chrome control Finder the first time a note is deleted.
+- Apple Notes attachments are kept in order at the end of the note; inline placement, native tags, and seven-day archiving are not supported.
+- On an iCloud Markdown folder, macOS may ask for permission to let Ruby or Chrome control Finder the first time a note is deleted.
 
 ## Roadmap
 
@@ -147,6 +151,7 @@ Project direction is tracked openly with the [`roadmap` label](https://github.co
 - [Chromium-based browser compatibility](https://github.com/lostshin/social-post-to-obsidian/issues/3)
 - [Local preservation of videos and animated GIFs](https://github.com/lostshin/social-post-to-obsidian/issues/4)
 - [Browser-level smoke tests for release packages](https://github.com/lostshin/social-post-to-obsidian/issues/5)
+- [Joplin Data API](https://joplinapp.org/help/api/references/rest_api/) is the next storage-provider candidate; [Bear CLI](https://bear.app/faq/command-line-interface/) follows it.
 
 Roadmap issues describe desired outcomes, not promised release dates. Evidence from real workflows takes priority over feature count.
 

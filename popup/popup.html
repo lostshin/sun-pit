@@ -42,24 +42,44 @@
 
         <form id="settingsForm">
           <div class="form-group">
-            <label for="storageMode">寫入方式</label>
-            <select id="storageMode">
-              <option value="native">本機 Helper（推薦）</option>
-              <option value="rest">Local REST API</option>
+              <label for="storageProvider">儲存目的地</label>
+            <select id="storageProvider">
+              <option value="markdown-folder">本機 Markdown 資料夾（推薦）</option>
+              <option value="apple-notes">Apple 備忘錄</option>
+              <option value="obsidian-rest">Obsidian Local REST API</option>
             </select>
-            <small>本機 Helper 不需要 Obsidian 外掛或 API Key</small>
+            <small>每次只會寫入目前選擇的一個目的地</small>
           </div>
 
-          <div id="directSettings" class="mode-panel">
+          <div id="markdownSettings" class="mode-panel">
             <div class="label-row">
-              <label>Vault 資料夾</label>
+              <label>Markdown 根資料夾</label>
               <span>Native Messaging</span>
             </div>
             <div class="vault-picker">
               <span id="vaultName">尚未選擇</span>
-              <button type="button" id="chooseVaultBtn" class="secondary">選擇 Vault</button>
+              <button type="button" id="chooseFolderBtn" class="secondary">選擇資料夾</button>
             </div>
-            <small>首次使用需安裝 Helper；請先查看<a href="https://github.com/lostshin/social-post-to-obsidian/blob/main/INSTALL.md" target="_blank" rel="noreferrer">安裝說明</a>，再選擇包含 <code>.obsidian</code> 的 Vault 根目錄</small>
+            <div id="nativeSetupHelp" class="native-setup-help" hidden>
+              <p id="nativeSetupMessage" class="native-setup-title"></p>
+              <p id="nativeSetupHint"></p>
+              <a href="https://github.com/lostshin/social-post-to-obsidian/blob/main/INSTALL.md" target="_blank" rel="noreferrer">開啟 Helper 安裝說明 ↗</a>
+            </div>
+            <small>可選任何可寫資料夾；若含 <code>.obsidian</code>，開啟時會使用 Obsidian</small>
+          </div>
+
+          <div id="notesSettings" class="mode-panel" hidden>
+            <div class="form-group">
+              <div class="label-row">
+                <label for="notesLocation">帳號與資料夾</label>
+                <span>Apple 備忘錄</span>
+              </div>
+              <div class="input-with-action notes-location-control">
+                <select id="notesLocation"><option value="">尚未載入</option></select>
+                <button type="button" id="refreshNotesBtn" class="input-action">重新載入</button>
+              </div>
+              <small>「On My Mac」只留在本機；iCloud 帳號會由 Apple 同步</small>
+            </div>
           </div>
 
           <div id="restSettings" class="mode-panel" hidden>
@@ -84,18 +104,18 @@
             <p id="httpWarning" class="http-warning" hidden>⚠ 目前為 HTTP 明文傳輸，API Key 會以未加密方式送出。建議改用 27124（HTTPS）以加密連線。</p>
           </div>
 
-          <div class="form-group common-path-group">
+          <div id="commonPathGroup" class="form-group common-path-group">
             <div class="form-grid path-grid">
               <div class="form-group">
-                <label for="basePath">Vault 內存檔路徑</label>
+                <label for="basePath">筆記存檔路徑</label>
                 <input type="text" id="basePath" value="個人創作/社群推文" placeholder="資料夾路徑" spellcheck="false">
-                <small>相對於 Vault 根目錄</small>
+                <small>相對於所選根資料夾</small>
               </div>
 
               <div class="form-group">
                 <label for="mediaPath">圖片儲存路徑</label>
                 <input type="text" id="mediaPath" value="附件/Social Post to Obsidian" placeholder="附件資料夾路徑" spellcheck="false">
-                <small>相對於 Vault 根目錄</small>
+                <small>相對於所選根資料夾</small>
               </div>
             </div>
           </div>
@@ -131,7 +151,7 @@
 
     <footer class="app-footer">
       <span class="footer-dot" aria-hidden="true"></span>
-      <span>發佈後自動備份至你的 Vault</span>
+      <span>發佈後自動備份至你選擇的目的地</span>
       <a href="https://github.com/lostshin/social-post-to-obsidian/blob/main/PRIVACY.md" target="_blank" rel="noreferrer">隱私</a>
     </footer>
   </div>

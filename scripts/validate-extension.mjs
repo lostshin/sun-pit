@@ -111,6 +111,7 @@ for (const permission of manifest.host_permissions || []) {
 
 const javascriptFiles = [
   'background.js',
+  ...readdirSync(fromRoot('providers')).filter((file) => file.endsWith('.js')).map((file) => join('providers', file)),
   ...readdirSync(fromRoot('shared')).filter((file) => file.endsWith('.js')).map((file) => join('shared', file)),
   ...readdirSync(fromRoot('content')).filter((file) => file.endsWith('.js')).map((file) => join('content', file)),
   ...readdirSync(fromRoot('popup')).filter((file) => file.endsWith('.js')).map((file) => join('popup', file))

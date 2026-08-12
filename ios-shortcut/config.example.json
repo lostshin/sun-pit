@@ -1,0 +1,15 @@
+{
+  "screen_name": "your_x_handle",
+  "shortcut_name": "存貼文到 Obsidian",
+  "vault_folder": {
+    "fileLocation": {
+      "crossDeviceItemID": "docs.icloud.com:com.apple.CloudDocs/<由探針捷徑取得>",
+      "fileProviderDomainID": "com.apple.CloudDocs.iCloudDriveFileProvider/<由探針捷徑取得>",
+      "appContainerBundleIdentifier": "md.obsidian",
+      "relativeSubpath": "iCloud~md~obsidian/Documents/<Vault>/個人創作/社群推文",
+      "WFFileLocationType": "iCloud"
+    },
+    "filename": "社群推文",
+    "displayName": "社群推文"
+  }
+}

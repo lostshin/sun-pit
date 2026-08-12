@@ -2,3 +2,7 @@
 .claude/settings.local.json
 dist/
 *.zip
+# iOS 捷徑：config.json 與產出的 .shortcut 都含裝置專屬 ID，不得進版控
+ios-shortcut/config.json
+ios-shortcut/build/
+*.shortcut

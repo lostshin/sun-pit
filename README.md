@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  直接把 X（Twitter）與 Threads 當成筆記軟體。發文後自動存進 Obsidian，不用複製貼上，也不用按擷取按鈕。
+  直接把 X（Twitter）與 Threads 當成筆記軟體。發文後自動存進 Markdown 資料夾、Obsidian 或 Apple 備忘錄。
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@
 
 你已經在 X（Twitter）或 Threads 寫下想法，為什麼發文後還要再整理一次？
 
-Social Post to Obsidian 會在貼文發佈後，自動把文字、串文與靜態圖片整理成 Markdown，存進你自己的 Obsidian Vault。短短一句會存，一路寫下去的長串文也會存，而且保留原本順序。
+Social Post to Obsidian 會在貼文發佈後，自動把文字、串文與靜態圖片整理好，存進你選擇的本機 Markdown 資料夾、Obsidian Vault 或 Apple 備忘錄。短短一句會存，一路寫下去的長串文也會存，而且保留原本順序。
 
 發文後，不必回頭按擷取、不必切到 Obsidian，也不必重新整理格式。你照原本的方式寫，筆記會自己存好。
 
@@ -37,22 +37,23 @@ Social Post to Obsidian 會在貼文發佈後，自動把文字、串文與靜�
 
 ## 你會得到什麼
 
-- 發佈 X 或 Threads 貼文後，自動建立 Markdown 筆記。
+- 發佈 X 或 Threads 貼文後，自動建立 Markdown 筆記或 Apple 備忘錄。
 - 單則貼文、連續串文與靜態圖片都會保存；串文維持原本順序。
 - 每則內容都有獨立、可直接複製的 Markdown code block。
 - 來源網址、發佈時間、回覆關係、引用貼文與串文數量會一起留下來。
-- 撰寫時自動暫存草稿；Obsidian 暫時無法使用時，恢復後會自動補存。
+- 撰寫時自動暫存草稿；目的地暫時無法使用時，恢復後會自動補存到原目的地。
 - Popup 可預覽、開啟或刪除草稿與最近存檔。
 - 沒有第三方 JavaScript、開發者後端、遙測或廣告。
 
-## 支援環境與寫入方式
+## 支援環境與儲存目的地
 
-| 寫入方式 | 平台 | 需要什麼 |
+| 目的地 | 平台 | 功能與需求 |
 | --- | --- | --- |
-| 本機 Helper（預設、推薦） | macOS + Google Chrome | 隨附的開源 Native Helper；不需要 Obsidian 外掛或 API Key |
-| Local REST API | macOS、Windows、Linux + Google Chrome | Obsidian 社群外掛 [Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api) 與 API Key |
+| 本機 Markdown 資料夾（預設、推薦） | macOS + Google Chrome | 隨附的開源 Native Helper；可選任何可寫資料夾，不需要 `.obsidian`、外掛或 API Key；支援草稿、圖片、三日合併與七日封存 |
+| Apple 備忘錄 | macOS + Google Chrome | 使用系統 Notes 自動化；支援正式貼文、圖片、三日合併、開啟、刪除與離線補存；草稿留在 Chrome 本機儲存，不做七日封存 |
+| Obsidian Local REST API | macOS、Windows、Linux + Google Chrome | Obsidian 社群外掛 [Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api) 與 API Key；保留原有功能 |
 
-兩種模式都需要 [Obsidian](https://obsidian.md/)。本機 Helper 目前只支援 macOS；其他系統請在 Popup 選擇 Local REST API。
+每次只寫入一個目的地。只有 Local REST API 模式一定需要 [Obsidian](https://obsidian.md/)；一般 Markdown 資料夾與 Apple 備忘錄不需要安裝 Obsidian。本機 Helper 目前只支援 macOS。
 
 ## 安裝
 
@@ -68,7 +69,7 @@ Social Post to Obsidian 會在貼文發佈後，自動把文字、串文與靜�
    ./native/install-host.sh
    ```
 
-4. 在 `chrome://extensions/` 重新載入外掛，開啟 Popup，按「選擇 Vault」。
+4. 在 `chrome://extensions/` 重新載入外掛，開啟 Popup，選擇儲存目的地。
 
 Chrome 不能直接載入 ZIP。更新手動安裝版時也要保留相同資料夾位置，否則 extension ID、既有設定與 Helper 授權可能改變。
 
@@ -82,17 +83,18 @@ Chrome 不能直接載入 ZIP。更新手動安裝版時也要保留相同資料
 ./native/install-host.sh jdfempgjnmdlokacfjmnipihhghcnomb
 ```
 
-Chrome Web Store 基於安全限制不會自動執行本機安裝程式。若不想安裝 Helper，可改用 Local REST API 模式。
+Chrome Web Store 基於安全限制不會自動執行本機安裝程式。Markdown 資料夾與 Apple 備忘錄需要 Helper；若不想安裝，可改用 Local REST API。
 
 ## 設定與使用
 
 1. 將擴充功能固定在 Chrome 工具列並開啟 Popup。
-2. 本機 Helper 模式：按「選擇 Vault」，選擇含 `.obsidian` 的 Vault 根目錄。
-3. Local REST API 模式：輸入 API Key、HTTP port `27123` 或 HTTPS port `27124`，再測試連線。
-4. 視需要調整筆記路徑與圖片路徑，按「儲存設定」。
-5. 重新整理已開啟的 X／Threads 分頁，照平常方式撰寫並發佈貼文。
+2. 本機 Markdown 資料夾：按「選擇資料夾」，可選一般資料夾或 Obsidian Vault 根目錄。
+3. Apple 備忘錄：明確選擇帳號與資料夾；`On My Mac` 純本機，iCloud 帳號會由 Apple 同步。
+4. Local REST API：輸入 API Key、HTTP port `27123` 或 HTTPS port `27124`，再測試連線。
+5. Markdown／REST 模式可調整筆記與圖片路徑；按「儲存設定」。
+6. 重新整理已開啟的 X／Threads 分頁，照平常方式撰寫並發佈貼文。
 
-Popup 的「未發佈草稿」與「最近儲存」可顯示內容預覽；箭頭會開啟 Obsidian 筆記，垃圾桶只刪除 Vault 筆記，不會刪除社群平台原文。
+Popup 的「未發佈草稿」與「最近儲存」可顯示內容預覽；開啟與刪除會交給該項目的原儲存目的地，不會刪除社群平台原文。
 
 ## 儲存結果
 
@@ -118,16 +120,17 @@ Markdown 使用可從筆記位置解析的標準相對連結。若個別圖片�
 X／Threads 分頁
   → Chrome extension
   → macOS Native Helper 或 127.0.0.1 Local REST API
-  → 使用者自己的 Obsidian Vault
+  → Markdown 資料夾、Apple 備忘錄或 Obsidian Vault（擇一）
 ```
 
-- `storage`：保存寫入模式、路徑、可選的 REST API 設定、離線佇列及最近存檔資訊。
+- `storage`：保存目的地設定、Apple Notes 模式的完整草稿、離線佇列及最近存檔資訊。
 - `nativeMessaging`：在 macOS 與使用者自行安裝的本機 Helper 溝通。
 - `notifications`：原始分頁已關閉時回報正式貼文的存檔結果。
-- `alarms`：定期補存離線佇列與維護 Vault 狀態。
+- `alarms`：定期補存離線佇列；Markdown 資料夾另執行七日封存維護。
 - X／Threads 網站存取：只處理使用者正在撰寫或剛發佈的貼文及相關來源資訊。
 - X／Meta 圖片 CDN：下載該貼文中的靜態圖片。
 - `127.0.0.1`：只供使用者選擇 Local REST API 模式時連接本機 Obsidian 外掛。
+- Apple 備忘錄：只在使用者選擇此目的地時，由 Helper 請求 macOS Automation 權限；選 iCloud 帳號代表內容會依 Apple 設定同步。
 
 專案沒有開發者營運的伺服器，不販售或分享資料，也不執行遠端程式碼。詳情見[隱私權政策](PRIVACY.md)。
 
@@ -137,7 +140,8 @@ X／Threads 分頁
 - 目前只同步靜態圖片；影片與動態 GIF 不會下載。
 - X 與 Threads 的內部 API 可能改變。回報解析問題時請移除 API Key、cookies、私人貼文與完整平台回應。
 - Threads 圖片網址帶有時效簽章；離線過久後可能只能留下遠端網址。
-- iCloud Vault 首次刪除筆記時，macOS 可能要求允許 Ruby／Chrome 控制 Finder。
+- Apple 備忘錄附件會按順序放在備忘錄末端，不保證嵌入原文位置；不支援原生 tag 與七日封存。
+- iCloud 資料夾首次刪除 Markdown 時，macOS 可能要求允許 Ruby／Chrome 控制 Finder；選擇 iCloud Notes 則由 Apple 負責同步。
 
 ## Roadmap
 
@@ -147,6 +151,8 @@ X／Threads 分頁
 - [Chromium 瀏覽器相容性](https://github.com/lostshin/social-post-to-obsidian/issues/3)
 - [影片與動態 GIF 的本機保存](https://github.com/lostshin/social-post-to-obsidian/issues/4)
 - [Release 套件的瀏覽器層 smoke tests](https://github.com/lostshin/social-post-to-obsidian/issues/5)
+- [Joplin Data API](https://joplinapp.org/help/api/references/rest_api/)：本機 REST、Markdown、CRUD、notebook 與 resource，列為下一個儲存 provider。
+- [Bear CLI](https://bear.app/faq/command-line-interface/)：本機 `bearcli` 支援建立、追加、附件與垃圾桶，列為次順位。
 
 Roadmap issues 表示想解決的問題，不代表承諾發布日期；真實工作流程的驗證會優先於功能數量。
 
