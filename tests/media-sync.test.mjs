@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import vm from 'node:vm';
@@ -92,6 +92,17 @@ assert.doesNotMatch(
 // 不能要求使用者先知道並手動傳入正式 extension ID。
 const installerTestHome = mkdtempSync(join(tmpdir(), 'sp2o-installer-test-'));
 try {
+  const installerSource = readFileSync('native/install-host.sh', 'utf8');
+  const testInstallerSource = installerSource.replace(
+    'if [[ "$(/usr/bin/uname -s)" != "Darwin" ]]; then',
+    'if false; then'
+  );
+  assert.notEqual(testInstallerSource, installerSource, '測試必須只略過 macOS 平台閘門');
+  const installerTestNativeDirectory = join(installerTestHome, 'native');
+  mkdirSync(installerTestNativeDirectory);
+  const installerTestPath = join(installerTestNativeDirectory, 'install-host.sh');
+  writeFileSync(installerTestPath, testInstallerSource, { mode: 0o755 });
+  copyFileSync('native/host.rb', join(installerTestNativeDirectory, 'host.rb'));
   const installerConfigDirectory = join(
     installerTestHome,
     'Library/Application Support/Social Post to Obsidian'
@@ -101,7 +112,7 @@ try {
     join(installerConfigDirectory, 'config.json'),
     JSON.stringify({ vaultPath: '/tmp/legacy-vault' })
   );
-  const installResult = spawnSync('/bin/zsh', ['native/install-host.sh'], {
+  const installResult = spawnSync('/bin/zsh', [installerTestPath], {
     cwd: process.cwd(),
     env: { ...process.env, HOME: installerTestHome },
     encoding: 'utf8'
