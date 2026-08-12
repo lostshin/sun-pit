@@ -906,7 +906,7 @@ case "$2" in
     esac
     ;;
   *"set htmlPath"*)
-    /usr/bin/stat -f '%Lp' "$8" > "\${SP2O_FAKE_LOG}"
+    /usr/bin/ruby -e 'printf "%o\\n", File.stat(ARGV.fetch(0)).mode & 0777' "$8" > "\${SP2O_FAKE_LOG}"
     /bin/cat "$8" >> "\${SP2O_FAKE_LOG}"
     printf 'note-fake'
     ;;
