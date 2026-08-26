@@ -11,6 +11,8 @@
     exists: (ref, settings) => deps.fileExists(ref, settings),
     delete: (ref, settings, strict) => deps.deleteFile(ref, settings, strict),
     open: (ref) => deps.nativeOpen(ref),
+    scanPublished: (settings) => deps.scanFilePublished(settings),
+    mergeDuplicateGroup: (group, settings) => deps.mergeFileDuplicateGroup(group, settings),
     archive: (cutoff, settings) => deps.nativeArchive(cutoff, settings)
   }));
 })(globalThis);

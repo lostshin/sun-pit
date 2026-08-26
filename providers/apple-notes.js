@@ -11,6 +11,8 @@
     exists: (ref, settings) => deps.notesExists(ref, settings),
     delete: (ref, settings) => deps.notesDelete(ref, settings),
     open: (ref, settings) => deps.notesOpen(ref, settings),
+    scanPublished: (settings) => deps.scanNotesPublished(settings),
+    mergeDuplicateGroup: (group, settings) => deps.mergeNotesDuplicateGroup(group, settings),
     archive: null
   }));
 })(globalThis);

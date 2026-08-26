@@ -197,6 +197,70 @@ main {
   border-radius: 50%;
 }
 
+.duplicate-section .activity-heading {
+  align-items: flex-start;
+}
+
+.duplicate-description {
+  max-width: 220px;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.compact-button {
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+.duplicate-status,
+.duplicate-provider-status {
+  margin-top: 8px;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.duplicate-provider-status.error {
+  color: var(--danger);
+}
+
+.duplicate-results {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.duplicate-group {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.duplicate-group.blocked {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.duplicate-group span,
+.duplicate-group small {
+  display: block;
+}
+
+.duplicate-group small {
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.duplicate-merge-button {
+  width: 100%;
+  margin-top: 10px;
+}
+
 .http-warning {
   margin-top: 8px;
   padding: 9px 11px;

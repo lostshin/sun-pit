@@ -35,7 +35,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .then((result) => sendResponse(result || { ok: false, error: '存檔未完成' }));
       return true;
     case 'RETRY_QUEUE':
-      enqueue('offline-retry', retryOfflineQueue);
+      enqueue('offline-retry', async () => {
+        await retryOfflineQueue();
+        syncArchiveMaintenance(await getStorageSettings());
+      });
       break;
     case 'GET_NATIVE_STATUS':
       sendNativeRequest({ action: 'ping' }).then(
@@ -109,6 +112,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (error) => sendResponse({ ok: false, error: error.message })
       );
       return true;
+    case 'SCAN_DUPLICATE_POSTS':
+      scanDuplicatePosts().then(
+        (response) => sendResponse(response),
+        (error) => sendResponse({ ok: false, error: error.message })
+      );
+      return true;
+    case 'GET_DUPLICATE_SCAN_SESSION':
+      getDuplicateScanSession().then(
+        (response) => sendResponse(response),
+        (error) => sendResponse({ ok: false, error: error.message })
+      );
+      return true;
+    case 'MERGE_DUPLICATE_POSTS':
+      mergeDuplicatePosts(message.scanId, message.groupIds).then(
+        (response) => sendResponse(response),
+        (error) => sendResponse({ ok: false, error: error.message })
+      );
+      return true;
   }
 
   // 同步回應，避免 content script 因 port closed 錯誤而重送訊息
@@ -137,11 +158,19 @@ const STORAGE_SETTING_KEYS = [
   'appleNotesSettings'
 ];
 const NATIVE_HOST_NAME = 'com.lostshin.social_post_to_obsidian';
-const MIN_NATIVE_HOST_VERSION = '1.8.2';
+const MIN_NATIVE_HOST_VERSION = '1.9.2';
 const MAINTENANCE_ALARM = 'sp2o-vault-maintenance';
-const WEEKLY_ARCHIVE_ALARM = 'sp2o-weekly-archive';
-const WEEKLY_ARCHIVE_MINUTES = 7 * 24 * 60;
+const ARCHIVE_ALARM = 'sp2o-obsidian-archive';
+const LEGACY_ARCHIVE_ALARM = 'sp2o-weekly-archive';
+const ARCHIVE_ALARM_DELAY_MINUTES = 1;
+const ARCHIVE_ALARM_PERIOD_MINUTES = 24 * 60;
 const ARCHIVE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const ARCHIVE_POST_FOLDERS = Object.freeze({
+  post: '發文',
+  reply: '回覆',
+  quote: '引用',
+  thread: '串文'
+});
 const X_BACKFILL_JOB_KEY = 'xBackfillScanJob';
 const X_BACKFILL_LAST_KEY = 'xBackfillLastCompletedAt';
 const X_BACKFILL_TIMEOUT_ALARM = 'sp2o-x-backfill-timeout';
@@ -151,9 +180,12 @@ const X_BACKFILL_TIMEOUT_MS = 90 * 1000;
 const RECENT_THREAD_APPEND_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
 const THREAD_CONTEXT_KEY = 'recentThreadContexts';
 const THREAD_CONTEXT_LIMIT = 100;
+const CONTENT_DEDUPE_INDEX_KEY = 'contentDedupeIndex';
+const DUPLICATE_SCAN_SESSION_KEY = 'duplicateScanSession';
 let storageMigrationPromise;
 let storageMigrationError;
 let providerRegistry;
+let contentDedupeIndexMutation = Promise.resolve();
 
 async function getStorageSettings() {
   await ensureStorageSchema();
@@ -327,7 +359,12 @@ function providerDependencies() {
       await chrome.tabs.create({ url: 'obsidian://open?file=' + encodeURIComponent(ref.path) });
       return { ok: true };
     },
-    nativeArchive: (cutoff, settings) => archiveOldSocialPosts(settings, cutoff),
+    restArchive: (cutoff, settings) => archiveRestSocialPosts(settings, cutoff),
+    nativeArchive: (cutoff, settings) => sendNativeRequest({
+      action: 'archiveSocialPosts',
+      path: normalizeVaultPath(settings.basePath || DEFAULT_BASE_PATH),
+      olderThan: cutoff
+    }),
     saveLocalDraft,
     saveNotesPublished,
     findNotesBySource: async (data, settings) => {
@@ -361,7 +398,11 @@ function providerDependencies() {
       accountId: settings.accountId,
       noteId: ref.noteId,
       externalKey: ref.externalKey
-    })
+    }),
+    scanFilePublished,
+    mergeFileDuplicateGroup,
+    scanNotesPublished,
+    mergeNotesDuplicateGroup
   };
 }
 
@@ -406,6 +447,32 @@ async function saveMarkdownPublished(data, context, settings) {
       failedMedia: 0,
       merged: false,
       ref: SP2OStorage.fileRef(settings.storageProvider, context.fullPath, context.filename, context.ref?.externalKey)
+    };
+  }
+  if (context.crossPlatformExisting) {
+    const current = await parseMarkdownPostRecord(context.existingMarkdown, context.ref);
+    if (!current || current.fingerprint !== context.fingerprint) {
+      throw new Error('既有筆記內容已變更，跨平台合併已取消');
+    }
+    const mediaResults = await mergedMediaResults(data, current, [], settings);
+    const markdown = mergeCrossPlatformMarkdown(
+      context.existingMarkdown,
+      context.fingerprint,
+      context.sources,
+      [],
+      mediaResults
+    );
+    await saveVaultFile(markdown, context.fullPath, settings, 'text/markdown', vaultFileTime(current.createdAt));
+    const verified = await parseMarkdownPostRecord(await readVaultFile(context.fullPath, settings), context.ref);
+    if (!verified || verified.fingerprint !== context.fingerprint
+      || !context.sources.every(source => verified.sources.some(item => item.externalKey === source.externalKey))) {
+      throw new Error('跨平台合併讀回驗證失敗');
+    }
+    return {
+      savedMedia: mediaResults.filter(item => !item.failed).length,
+      failedMedia: mediaResults.filter(item => item.failed).length,
+      merged: true,
+      ref: context.ref
     };
   }
   const result = context.appendExisting
@@ -680,28 +747,181 @@ async function relayXBackfillResults(posts, sender) {
 
 async function startNativeMaintenance() {
   chrome.alarms.create(MAINTENANCE_ALARM, { periodInMinutes: 15 });
-  chrome.alarms.get(WEEKLY_ARCHIVE_ALARM, (alarm) => {
-    void chrome.runtime.lastError;
-    if (!alarm) {
-      chrome.alarms.create(WEEKLY_ARCHIVE_ALARM, {
-        delayInMinutes: WEEKLY_ARCHIVE_MINUTES,
-        periodInMinutes: WEEKLY_ARCHIVE_MINUTES
-      });
-    }
-  });
   const settings = await getStorageSettings();
   await cleanupEmptyMediaFolders(settings);
 }
 
-async function archiveOldSocialPosts(settings, cutoff = new Date(Date.now() - ARCHIVE_AGE_MS).toISOString()) {
-  if (settings.storageProvider !== SP2OStorage.PROVIDERS.MARKDOWN_FOLDER) return 0;
-  const response = await sendNativeRequest({
-    action: 'archiveSocialPosts',
-    path: normalizeVaultPath(settings.basePath || DEFAULT_BASE_PATH),
-    olderThan: cutoff
+function startArchiveMaintenance() {
+  chrome.alarms.clear(LEGACY_ARCHIVE_ALARM);
+  chrome.alarms.get(ARCHIVE_ALARM, (alarm) => {
+    void chrome.runtime.lastError;
+    if (!alarm || alarm.periodInMinutes !== ARCHIVE_ALARM_PERIOD_MINUTES) {
+      chrome.alarms.create(ARCHIVE_ALARM, {
+        delayInMinutes: ARCHIVE_ALARM_DELAY_MINUTES,
+        periodInMinutes: ARCHIVE_ALARM_PERIOD_MINUTES
+      });
+    }
   });
+}
+
+function stopArchiveMaintenance() {
+  chrome.alarms.clear(ARCHIVE_ALARM);
+  chrome.alarms.clear(LEGACY_ARCHIVE_ALARM);
+}
+
+// 每日封存排程只跟著目的地的封存能力走；SW 啟動、儲存設定與 alarm 觸發共用同一判斷。
+function syncArchiveMaintenance(settings) {
+  if (getProvider(settings).capabilities.archive) startArchiveMaintenance();
+  else stopArchiveMaintenance();
+}
+
+function archiveFrontmatterValue(markdown, key) {
+  const frontmatter = /^---\r?\n(.*?)\r?\n---(?:\r?\n|$)/s.exec(String(markdown || ''))?.[1];
+  if (!frontmatter) return '';
+  const prefix = `${key}:`;
+  const line = frontmatter.split(/\r?\n/).find(item => item.startsWith(prefix));
+  if (!line) return '';
+  const value = line.slice(prefix.length).trim();
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function archivePostType(markdown, legacyType = '') {
+  if (archiveFrontmatterValue(markdown, 'status') === 'draft') return '';
+  const source = archiveFrontmatterValue(markdown, 'source');
+  if (!['x', 'threads'].includes(source)) return legacyType;
+
+  const explicitType = archiveFrontmatterValue(markdown, 'post_type');
+  if (ARCHIVE_POST_FOLDERS[explicitType]) return explicitType;
+  if (Number(archiveFrontmatterValue(markdown, 'thread_count')) > 1) return 'thread';
+  const sourceAuthor = xAuthorFromStatusUrl(archiveFrontmatterValue(markdown, 'source_url'));
+  const replyAuthor = xAuthorFromStatusUrl(archiveFrontmatterValue(markdown, 'reply_to'));
+  if (sourceAuthor && sourceAuthor === replyAuthor) return 'thread';
+  if (archiveFrontmatterValue(markdown, 'quoted_url') || archiveFrontmatterValue(markdown, 'quoted_from')) {
+    return 'quote';
+  }
+  if (archiveFrontmatterValue(markdown, 'reply_to')) return 'reply';
+  return 'post';
+}
+
+function archivePostTimestamp(markdown, filename) {
+  const created = String(archiveFrontmatterValue(markdown, 'created') || '');
+  const value = created || String(filename || '').replace(
+    /^(\d{4}-\d{2}-\d{2})_(\d{2})(\d{2})_.*/,
+    '$1 $2:$3'
+  );
+  const local = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value);
+  if (local) {
+    return new Date(
+      Number(local[1]),
+      Number(local[2]) - 1,
+      Number(local[3]),
+      Number(local[4]),
+      Number(local[5]),
+      Number(local[6] || 0)
+    ).getTime();
+  }
+  return Date.parse(value);
+}
+
+async function listRestDirectory(directory, settings) {
+  let response;
+  try {
+    response = await fetch(
+      `${apiBase(settings.port || 27123)}/vault/${encodeURIComponent(directory)}/`,
+      { method: 'GET', headers: { 'Authorization': `Bearer ${settings.apiKey}` } }
+    );
+  } catch (error) {
+    error.isObsidianConnectionError = true;
+    throw error;
+  }
+  if (response.status === 404) return [];
+  if (!response.ok) throw new Error(`列出 Vault 資料夾失敗：HTTP ${response.status}`);
+  const body = await response.json();
+  return Array.isArray(body.files) ? body.files.map(String) : [];
+}
+
+function resolveArchiveLink(sourceDirectory, link) {
+  const parts = String(link).startsWith('/')
+    ? []
+    : normalizeVaultPath(sourceDirectory).split('/').filter(Boolean);
+  for (const part of String(link).split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..') parts.pop();
+    else parts.push(part);
+  }
+  return parts.join('/');
+}
+
+function rewriteArchivedLinks(markdown, sourceDirectory, targetDirectory) {
+  return String(markdown).replace(/(!\[[^\]]*\]\(<)([^>]+)(>\))/g, (match, prefix, link, suffix) => {
+    if (/^(?:https?:|data:)/i.test(link)) return match;
+    const target = resolveArchiveLink(sourceDirectory, link);
+    return `${prefix}${relativeVaultPath(targetDirectory, target)}${suffix}`;
+  });
+}
+
+async function archiveRestSocialPosts(settings, cutoff) {
+  const cutoffTimestamp = Date.parse(cutoff);
+  if (!Number.isFinite(cutoffTimestamp)) throw new Error('封存日期格式無效');
+  const basePath = normalizeVaultPath(settings.basePath || DEFAULT_BASE_PATH);
+  const sourceDirectories = [
+    { path: basePath, legacyType: '' },
+    ...Object.entries(ARCHIVE_POST_FOLDERS).map(([legacyType, folder]) => ({
+      path: `${basePath}/${folder}`,
+      legacyType
+    }))
+  ];
+  const moved = [];
+  const skipped = [];
+
+  for (const directory of sourceDirectories) {
+    const names = await listRestDirectory(directory.path, settings);
+    for (const name of names.filter(item => item.endsWith('.md'))) {
+      const sourcePath = `${directory.path}/${name}`;
+      const markdown = await readVaultFile(sourcePath, settings);
+      const postType = archivePostType(markdown, directory.legacyType);
+      const createdAt = archivePostTimestamp(markdown, name);
+      if (!postType || !Number.isFinite(createdAt) || createdAt >= cutoffTimestamp) continue;
+
+      const targetPath = `${basePath}/Archive/${ARCHIVE_POST_FOLDERS[postType]}/${name}`;
+      if (await vaultFileExists(targetPath, settings)) {
+        skipped.push({ path: sourcePath, reason: 'target_exists' });
+        continue;
+      }
+
+      const updated = rewriteArchivedLinks(
+        markdown,
+        directory.path,
+        `${basePath}/Archive/${ARCHIVE_POST_FOLDERS[postType]}`
+      );
+      await saveVaultFile(updated, targetPath, settings, 'text/markdown');
+      try {
+        await deleteRestVaultFile(sourcePath, settings.apiKey, settings.port || 27123, true);
+      } catch (error) {
+        await deleteRestVaultFile(targetPath, settings.apiKey, settings.port || 27123, true).catch(() => {});
+        throw error;
+      }
+      moved.push({ from: sourcePath, to: targetPath });
+    }
+  }
+
+  return { ok: true, moved, skipped };
+}
+
+async function archiveOldSocialPosts(settings, cutoff = new Date(Date.now() - ARCHIVE_AGE_MS).toISOString()) {
+  const provider = getProvider(settings);
+  if (!provider.capabilities.archive) return 0;
+  const response = await provider.archive(cutoff, settings);
   const moved = Array.isArray(response.moved) ? response.moved : [];
-  if (!moved.length) return 0;
+  if (!moved.length) {
+    const skipped = Array.isArray(response.skipped) ? response.skipped.length : 0;
+    console.log(`[Social Post to Obsidian] Obsidian 封存檢查完成：移動 0 筆，略過 ${skipped} 筆`);
+    return 0;
+  }
 
   const movedPaths = new Map(moved.map(item => [item.from, item.to]));
   const stored = await chrome.storage.local.get(['recentSaves', THREAD_CONTEXT_KEY]);
@@ -716,6 +936,19 @@ async function archiveOldSocialPosts(settings, cutoff = new Date(Date.now() - AR
       : item
   ));
   await chrome.storage.local.set({ recentSaves, [THREAD_CONTEXT_KEY]: recentThreadContexts });
+  await mutateContentDedupeIndex((index) => Object.fromEntries(
+    Object.entries(index).map(([scope, fingerprints]) => [
+      scope,
+      Object.fromEntries(Object.entries(fingerprints || {}).map(([fingerprint, entries]) => [
+        fingerprint,
+        (entries || []).map((entry) => (
+          movedPaths.has(entry.ref?.path)
+            ? { ...entry, ref: { ...entry.ref, path: movedPaths.get(entry.ref.path) } }
+            : entry
+        ))
+      ]))
+    ])
+  ));
   console.log('[Social Post to Obsidian] 已歸檔超過 7 天的社群貼文:', moved.length);
   return moved.length;
 }
@@ -802,18 +1035,17 @@ async function handlePublishDraft(data, tabId) {
     validateProviderSettings(settings);
 
     // 1. 先存正式檔案；失敗（且未進離線佇列）時保留草稿檔與 draftStatus，內容不遺失
-    const basePath = settings.basePath || DEFAULT_BASE_PATH;
-    const prepared = settings.storageProvider === SP2OStorage.PROVIDERS.APPLE_NOTES
-      ? await prepareNotesPost(data, settings)
-      : await preparePublishedPost(data, basePath, settings);
-    const saveOutcome = await saveWithQueueFallback(
-      prepared.fullPath,
-      prepared.filename,
-      prepared.data,
-      settings,
-      tabId,
-      prepared
-    );
+    const saveOutcome = await withCrossPostLock(data, settings, async (fingerprint) => {
+      const prepared = await prepareStoragePost(data, settings, fingerprint);
+      return saveWithQueueFallback(
+        prepared.fullPath,
+        prepared.filename,
+        prepared.data,
+        settings,
+        tabId,
+        prepared
+      );
+    });
 
     // 發佈已受理（含進入離線佇列）後，遲到的舊草稿才可丟棄
     const acceptedAt = new Date().toISOString();
@@ -878,7 +1110,11 @@ async function saveWithQueueFallback(fullPath, filename, data, settings, tabId, 
         mergeUrls: options.mergeUrls,
         appendExisting: options.appendExisting,
         existingMarkdown: options.existingMarkdown,
-        rootTimestamp: options.rootTimestamp
+        rootTimestamp: options.rootTimestamp,
+        crossPlatformExisting: options.crossPlatformExisting,
+        fingerprint: options.fingerprint,
+        sources: options.sources,
+        canonicalRecord: options.canonicalRecord
       });
       const destination = provider.id === SP2OStorage.PROVIDERS.OBSIDIAN_REST
         ? 'Obsidian'
@@ -935,6 +1171,9 @@ async function saveWithQueueFallback(fullPath, filename, data, settings, tabId, 
     filename,
     ref: savedRef,
     platform: data.platform,
+    platforms: [...new Set((options.sources || data.sources || [sourceForPost(data)])
+      .map(source => source.platform))],
+    sources: options.sources || data.sources,
     url: options.appendExisting ? (options.mergeUrls?.[0] || data.replyTo || data.url) : data.url,
     preview: createPostPreview(data),
     mergeSegments: options.appendExisting ? options.mergeSegments : (options.mergeSegments || [data]),
@@ -942,6 +1181,7 @@ async function saveWithQueueFallback(fullPath, filename, data, settings, tabId, 
     rootTimestamp: options.rootTimestamp || options.mergeSegments?.[0]?.timestamp || data.timestamp,
     mergeUrls: options.mergeUrls || publishedPostUrls(data)
   });
+  await recordContentDedupe(data, settings, savedRef, options.sources || data.sources, options.fingerprint || data.contentFingerprint);
   const mediaText = result.failedMedia > 0
     ? `（${result.failedMedia} 張圖片未同步）`
     : result.savedMedia > 0 ? `（${result.savedMedia} 張圖片）` : '';
@@ -1328,6 +1568,382 @@ async function vaultNoteIndex(basePath, settings) {
   }
 }
 
+async function listRestMarkdownPaths(basePath, settings) {
+  const pending = [{ path: normalizeVaultPath(basePath), depth: 0 }];
+  const paths = [];
+  while (pending.length) {
+    const current = pending.shift();
+    const names = await listRestDirectory(current.path, settings);
+    for (const name of names) {
+      const value = String(name || '');
+      if (value.endsWith('/')) {
+        if (current.depth < 8 && !/(?:^|\/)Drafts\/?$/i.test(`${current.path}/${value}`)) {
+          pending.push({ path: `${current.path}/${value.replace(/\/$/, '')}`, depth: current.depth + 1 });
+        }
+      } else if (value.endsWith('.md')) {
+        paths.push(`${current.path}/${value}`);
+      }
+    }
+  }
+  return paths;
+}
+
+async function scanFilePublished(settings) {
+  const basePath = normalizeVaultPath(settings.basePath || DEFAULT_BASE_PATH);
+  let paths;
+  if (resolveStorageMode(settings) === 'native') {
+    const response = await sendNativeRequest({ action: 'list', path: basePath, recursive: true });
+    paths = (response.names || [])
+      .filter(name => String(name).endsWith('.md') && !/(?:^|\/)Drafts\//i.test(String(name)))
+      .map(name => `${basePath}/${name}`);
+  } else {
+    paths = await listRestMarkdownPaths(basePath, settings);
+  }
+  const records = [];
+  const errors = [];
+  for (const path of paths) {
+    try {
+      const ref = SP2OStorage.fileRef(settings.storageProvider, path, noteBasename(path), path);
+      const record = await parseMarkdownPostRecord(await readVaultFile(path, settings), ref);
+      if (record) records.push(record);
+    } catch (error) {
+      errors.push(`${noteBasename(path)}：${error.message}`);
+    }
+  }
+  return { records, errors };
+}
+
+async function scanNotesPublished(settings) {
+  const records = [];
+  const errors = [];
+  let cursor = 0;
+  for (;;) {
+    const response = await sendNativeRequest({
+      action: 'notesListPosts',
+      accountId: settings.accountId,
+      folderId: settings.folderId,
+      cursor,
+      limit: 10
+    });
+    for (const entry of response.entries || []) {
+      try {
+        const record = await parseNotesPostRecord(entry, settings);
+        if (record) records.push(record);
+      } catch (error) {
+        errors.push(`${entry.title || entry.noteId}：${error.message}`);
+      }
+    }
+    if (response.nextCursor == null) break;
+    cursor = Number(response.nextCursor);
+  }
+  return { records, errors };
+}
+
+function compareDuplicateRecord(left, right) {
+  const time = Date.parse(left.createdAt) - Date.parse(right.createdAt);
+  return Number.isFinite(time) && time !== 0
+    ? time
+    : SP2OStorage.refKey(left.ref).localeCompare(SP2OStorage.refKey(right.ref));
+}
+
+function duplicateGroupsForRecords(provider, records) {
+  const byFingerprint = new Map();
+  for (const record of records) {
+    const list = byFingerprint.get(record.fingerprint) || [];
+    list.push(record);
+    byFingerprint.set(record.fingerprint, list);
+  }
+  const groups = [];
+  for (const [fingerprint, matches] of byFingerprint) {
+    const consumed = new Set();
+    const mergedRecords = matches.filter(record => record.platforms.length > 1).sort(compareDuplicateRecord);
+    for (const canonical of mergedRecords) {
+      const sourceKeys = new Set(canonical.sources.map(source => source.externalKey));
+      const leftovers = matches.filter(record => (
+        record !== canonical
+        && !consumed.has(record)
+        && record.platforms.length === 1
+        && record.sources.some(source => sourceKeys.has(source.externalKey))
+      ));
+      for (const duplicate of leftovers) {
+        consumed.add(duplicate);
+        groups.push({
+          id: `${provider}:${fingerprint}:cleanup:${SP2OStorage.refKey(duplicate.ref)}`,
+          provider,
+          fingerprint,
+          platforms: canonical.platforms,
+          canonical,
+          duplicates: [duplicate],
+          blocked: false
+        });
+      }
+    }
+    const x = matches.filter(record => !consumed.has(record)
+      && record.platforms.length === 1 && record.platforms[0] === 'x').sort(compareDuplicateRecord);
+    const threads = matches.filter(record => !consumed.has(record)
+      && record.platforms.length === 1 && record.platforms[0] === 'threads').sort(compareDuplicateRecord);
+    for (let index = 0; index < Math.min(x.length, threads.length); index++) {
+      const pair = [x[index], threads[index]].sort(compareDuplicateRecord);
+      groups.push({
+        id: `${provider}:${fingerprint}:${index}`,
+        provider,
+        fingerprint,
+        platforms: ['x', 'threads'],
+        canonical: pair[0],
+        duplicates: pair.slice(1),
+        blocked: false
+      });
+    }
+  }
+  return groups;
+}
+
+async function replaceDedupeScopeIndex(settings, records) {
+  const scoped = {};
+  for (const record of records) {
+    const entries = scoped[record.fingerprint] || [];
+    entries.push({
+      ref: record.ref,
+      title: record.title,
+      createdAt: record.createdAt,
+      platforms: record.platforms,
+      sources: record.sources
+    });
+    scoped[record.fingerprint] = entries;
+  }
+  await mutateContentDedupeIndex(index => ({
+    ...index,
+    [dedupeScopeKey(settings)]: scoped
+  }));
+}
+
+function duplicatePublicRecord(record) {
+  return {
+    ref: record.ref,
+    title: record.title,
+    createdAt: record.createdAt,
+    platforms: record.platforms,
+    sources: record.sources,
+    imageCount: record.images?.length || 0,
+    hasManualContent: (record.manualSections || []).length > 0
+  };
+}
+
+function duplicatePublicGroup(group) {
+  return {
+    id: group.id,
+    provider: group.provider,
+    platforms: group.platforms,
+    canonical: duplicatePublicRecord(group.canonical),
+    duplicates: group.duplicates.map(duplicatePublicRecord),
+    blocked: group.blocked,
+    blockedReason: group.blockedReason
+  };
+}
+
+async function scanDuplicatePosts() {
+  await ensureStorageSchema();
+  const stored = await chrome.storage.local.get(STORAGE_SETTING_KEYS);
+  const configured = [
+    [SP2OStorage.PROVIDERS.MARKDOWN_FOLDER, stored.markdownFolderSettings?.folderName],
+    [SP2OStorage.PROVIDERS.OBSIDIAN_REST, stored.obsidianRestSettings?.apiKey],
+    [SP2OStorage.PROVIDERS.APPLE_NOTES,
+      stored.appleNotesSettings?.accountId && stored.appleNotesSettings?.folderId]
+  ].filter(([, ready]) => ready);
+  const providers = [];
+  const groups = [];
+  for (const [providerId] of configured) {
+    try {
+      const settings = await settingsForProvider(providerId);
+      const result = await getProvider(settings).scanPublished(settings);
+      const providerGroups = duplicateGroupsForRecords(providerId, result.records);
+      groups.push(...providerGroups);
+      await replaceDedupeScopeIndex(settings, result.records);
+      providers.push({
+        provider: providerId,
+        ok: true,
+        scanned: result.records.length,
+        groups: providerGroups.length,
+        warnings: result.errors
+      });
+    } catch (error) {
+      providers.push({ provider: providerId, ok: false, error: error.message, groups: 0 });
+    }
+  }
+  const scanId = `${Date.now()}-${crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)}`;
+  await chrome.storage.local.set({
+    [DUPLICATE_SCAN_SESSION_KEY]: {
+      scanId,
+      createdAt: new Date().toISOString(),
+      providers,
+      groups
+    }
+  });
+  return { ok: true, scanId, providers, groups: groups.map(duplicatePublicGroup) };
+}
+
+async function getDuplicateScanSession() {
+  const stored = await chrome.storage.local.get(DUPLICATE_SCAN_SESSION_KEY);
+  const session = stored[DUPLICATE_SCAN_SESSION_KEY];
+  if (!session?.scanId) return { ok: true, scanId: '', providers: [], groups: [] };
+  return {
+    ok: true,
+    scanId: session.scanId,
+    providers: session.providers || [],
+    groups: (session.groups || []).map(duplicatePublicGroup)
+  };
+}
+
+async function deleteMergedRecordAssets(record, settings) {
+  const mediaRoot = `${normalizeVaultPath(settings.mediaPath || DEFAULT_MEDIA_PATH)}/`;
+  for (const image of record.images || []) {
+    const path = recordImagePath(record, image);
+    if (!path.startsWith(mediaRoot)) continue;
+    await deleteVaultFile(path, settings, true);
+  }
+}
+
+async function reconcileMergedActivity(canonicalRef, duplicateRefs, sources) {
+  const duplicateKeys = new Set(duplicateRefs.map(SP2OStorage.refKey));
+  const canonicalKey = SP2OStorage.refKey(canonicalRef);
+  const stored = await chrome.storage.local.get(['recentSaves', THREAD_CONTEXT_KEY]);
+  const patchEntry = entry => SP2OStorage.refKey(entry.ref) === canonicalKey
+    ? {
+      ...entry,
+      platforms: [...new Set(sources.map(source => source.platform))],
+      sources,
+      url: sources[0]?.url || entry.url
+    }
+    : entry;
+  await chrome.storage.local.set({
+    recentSaves: (stored.recentSaves || [])
+      .filter(entry => !duplicateKeys.has(SP2OStorage.refKey(entry.ref)))
+      .map(patchEntry),
+    [THREAD_CONTEXT_KEY]: (stored[THREAD_CONTEXT_KEY] || [])
+      .filter(entry => !duplicateKeys.has(SP2OStorage.refKey(entry.ref)))
+      .map(patchEntry)
+  });
+}
+
+async function mergeFileDuplicateGroup(group, settings) {
+  const fresh = [];
+  for (const snapshot of [group.canonical, ...group.duplicates]) {
+    const markdown = await readVaultFile(snapshot.ref.path, settings);
+    const record = await parseMarkdownPostRecord(markdown, snapshot.ref);
+    if (!record || record.revision !== snapshot.revision || record.fingerprint !== group.fingerprint) {
+      throw new Error(`「${snapshot.title}」在掃描後已變更`);
+    }
+    fresh.push({ ...record, markdown });
+  }
+  const canonical = fresh[0];
+  const duplicates = fresh.slice(1);
+  const sources = normalizeCrossPostSources(fresh.flatMap(record => record.sources));
+  const mediaResults = await mergedMediaResults(null, canonical, duplicates, settings);
+  const updated = mergeCrossPlatformMarkdown(
+    canonical.markdown,
+    group.fingerprint,
+    sources,
+    duplicates,
+    mediaResults
+  );
+  await saveVaultFile(updated, canonical.ref.path, settings, 'text/markdown', vaultFileTime(canonical.createdAt));
+  const verified = await parseMarkdownPostRecord(await readVaultFile(canonical.ref.path, settings), canonical.ref);
+  if (!verified || verified.fingerprint !== group.fingerprint
+    || !sources.every(source => verified.sources.some(item => item.externalKey === source.externalKey))) {
+    throw new Error('canonical 筆記讀回驗證失敗，未刪除重複筆記');
+  }
+  for (const duplicate of duplicates) {
+    await deleteVaultFile(duplicate.ref.path, settings, true);
+    await deleteMergedRecordAssets(duplicate, settings);
+  }
+  await reconcileMergedActivity(canonical.ref, duplicates.map(record => record.ref), sources);
+  await removeContentDedupeRefs(duplicates.map(record => record.ref));
+  await recordContentDedupe(
+    { platform: sources[0].platform, timestamp: canonical.createdAt, url: sources[0].url, content: 'indexed' },
+    settings,
+    canonical.ref,
+    sources,
+    group.fingerprint
+  );
+  return { ref: canonical.ref, sources };
+}
+
+async function mergeNotesDuplicateGroup(group, settings) {
+  const fresh = [];
+  for (const snapshot of [group.canonical, ...group.duplicates]) {
+    const response = await sendNativeRequest({
+      action: 'notesRead',
+      accountId: settings.accountId,
+      noteId: snapshot.ref.noteId,
+      externalKey: snapshot.ref.externalKey
+    });
+    const record = await parseNotesPostRecord({
+      noteId: snapshot.ref.noteId,
+      title: snapshot.title,
+      html: response.html,
+      createdAt: snapshot.createdAt
+    }, settings);
+    if (!record || record.revision !== snapshot.revision || record.fingerprint !== group.fingerprint) {
+      throw new Error(`「${snapshot.title}」在掃描後已變更`);
+    }
+    fresh.push(record);
+  }
+  const canonical = fresh[0];
+  const duplicates = fresh.slice(1);
+  const sources = normalizeCrossPostSources(fresh.flatMap(record => record.sources));
+  const html = mergeCrossPlatformNotesHtml(canonical.html, group.fingerprint, sources, duplicates);
+  await sendNativeRequest({
+    action: 'notesMergeDuplicates',
+    accountId: settings.accountId,
+    folderId: settings.folderId,
+    canonical: {
+      noteId: canonical.ref.noteId,
+      externalKey: canonical.ref.externalKey,
+      revision: canonical.revision,
+      title: canonical.title,
+      html
+    },
+    duplicates: duplicates.map(record => ({
+      noteId: record.ref.noteId,
+      externalKey: record.ref.externalKey,
+      revision: record.revision
+    }))
+  });
+  await reconcileMergedActivity(canonical.ref, duplicates.map(record => record.ref), sources);
+  await removeContentDedupeRefs(duplicates.map(record => record.ref));
+  await recordContentDedupe(
+    { platform: sources[0].platform, timestamp: canonical.createdAt, url: sources[0].url, content: 'indexed' },
+    settings,
+    canonical.ref,
+    sources,
+    group.fingerprint
+  );
+  return { ref: canonical.ref, sources };
+}
+
+async function mergeDuplicatePosts(scanId, groupIds) {
+  const stored = await chrome.storage.local.get(DUPLICATE_SCAN_SESSION_KEY);
+  const session = stored[DUPLICATE_SCAN_SESSION_KEY];
+  if (!session || session.scanId !== scanId) throw new Error('掃描結果已失效，請重新掃描');
+  const selected = new Set(Array.isArray(groupIds) ? groupIds : []);
+  let merged = 0;
+  let skipped = 0;
+  const errors = [];
+  for (const group of session.groups || []) {
+    if (!selected.has(group.id) || group.blocked) continue;
+    try {
+      const settings = await settingsForProvider(group.provider);
+      await getProvider(settings).mergeDuplicateGroup(group, settings);
+      merged++;
+    } catch (error) {
+      skipped++;
+      errors.push(`${group.canonical.title}：${error.message}`);
+    }
+  }
+  await chrome.storage.local.remove(DUPLICATE_SCAN_SESSION_KEY);
+  return { ok: true, merged, skipped, errors };
+}
+
 // 同一則貼文可能用過的所有檔名。舊版檔名沒有 _HHmm，只比對現行格式的話，
 // 早期存的筆記會被判定成「沒存過」而重複建檔。
 function candidateFilenames(data) {
@@ -1423,6 +2039,7 @@ async function deleteVaultActivity(message) {
   if (target.ref) {
     const settings = await settingsForProvider(target.ref.provider);
     await getProvider(settings).delete(target.ref, settings, true);
+    await removeContentDedupeRefs([target.ref]);
   }
 
   if (target.key) {
@@ -1447,18 +2064,17 @@ async function handleSavePost(data, tabId, silent = false) {
     const settings = await getStorageSettings();
     validateProviderSettings(settings);
 
-    const prepared = settings.storageProvider === SP2OStorage.PROVIDERS.APPLE_NOTES
-      ? await prepareNotesPost(data, settings)
-      : await preparePublishedPost(data, settings.basePath || DEFAULT_BASE_PATH, settings);
-
-    await saveWithQueueFallback(
-      prepared.fullPath,
-      prepared.filename,
-      prepared.data,
-      settings,
-      tabId,
-      { ...prepared, silent }
-    );
+    await withCrossPostLock(data, settings, async (fingerprint) => {
+      const prepared = await prepareStoragePost(data, settings, fingerprint);
+      await saveWithQueueFallback(
+        prepared.fullPath,
+        prepared.filename,
+        prepared.data,
+        settings,
+        tabId,
+        { ...prepared, silent }
+      );
+    });
     return { ok: true };
   } catch (error) {
     console.error('[Social Post to Obsidian] Save failed:', error);
@@ -1508,13 +2124,17 @@ chrome.alarms.onAlarm.addListener((alarm) => {
         chrome.alarms.clear(MAINTENANCE_ALARM);
       }
     });
-  } else if (alarm.name === WEEKLY_ARCHIVE_ALARM) {
+  } else if (alarm.name === ARCHIVE_ALARM) {
     enqueue('vault-maintenance', async () => {
       const settings = await getStorageSettings();
-      if (settings.storageProvider === SP2OStorage.PROVIDERS.MARKDOWN_FOLDER) {
+      if (!getProvider(settings).capabilities.archive) {
+        stopArchiveMaintenance();
+        return;
+      }
+      try {
         await archiveOldSocialPosts(settings);
-      } else {
-        chrome.alarms.clear(WEEKLY_ARCHIVE_ALARM);
+      } catch (error) {
+        console.log('[Social Post to Obsidian] Obsidian 封存暫時無法執行:', error.message);
       }
     });
   }
@@ -1543,7 +2163,7 @@ async function retryOfflineQueue() {
         fullPath: ref?.path,
         filename: item.filename || ref?.title
       };
-      if (item.appendExisting && ref?.path) {
+      if ((item.appendExisting || item.crossPlatformExisting) && ref?.path) {
         context.existingMarkdown = await readVaultFile(ref.path, settings).catch(() => item.existingMarkdown);
       }
       const result = await provider.savePublished(item.data, context, settings);
@@ -1551,6 +2171,9 @@ async function retryOfflineQueue() {
         filename: item.filename,
         ref: result.ref || ref,
         platform: item.platform,
+        platforms: [...new Set((item.sources || item.data?.sources || [sourceForPost(item.data)])
+          .map(source => source.platform))],
+        sources: item.sources || item.data?.sources,
         url: item.appendExisting ? (item.mergeUrls?.[0] || item.data?.replyTo || item.url) : item.url,
         preview: item.data?.rawMarkdown
           ? createContentPreview(item.data.rawMarkdown)
@@ -1560,6 +2183,13 @@ async function retryOfflineQueue() {
         rootTimestamp: item.rootTimestamp,
         mergeUrls: item.data?.rawMarkdown ? undefined : (item.mergeUrls || publishedPostUrls(item.data))
       });
+      await recordContentDedupe(
+        item.data,
+        settings,
+        result.ref || ref,
+        item.sources || item.data?.sources,
+        item.fingerprint || item.data?.contentFingerprint
+      );
       if (providerId === SP2OStorage.PROVIDERS.APPLE_NOTES && item.data?.platform) {
         const snapshotKey = `draftSnapshot_${item.data.platform}`;
         const statusKey = `draftStatus_${item.data.platform}`;
@@ -1592,6 +2222,7 @@ ensureStorageSchema().then(async () => {
     chrome.alarms.create(RETRY_ALARM, { periodInMinutes: 1 });
   }
 
+  syncArchiveMaintenance(stored);
   if (stored.storageProvider !== SP2OStorage.PROVIDERS.MARKDOWN_FOLDER) return;
   const status = await sendNativeRequest({ action: 'ping' });
   if (!status.configured) return;
@@ -1674,6 +2305,241 @@ function createPostPreview(data) {
   return mediaCount > 0 ? `圖片貼文 · ${mediaCount} 張圖片` : '沒有文字內容';
 }
 
+function normalizedCrossPostText(data) {
+  if (!data || data.replyTo || data.quoted) return '';
+  const threadItems = getThreadItems(data);
+  const value = threadItems.length ? threadItems.join(' ') : String(data.content || '');
+  return value.replace(/\s+/gu, ' ').trim();
+}
+
+async function sha256Hex(value) {
+  const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function contentFingerprint(data) {
+  const normalized = normalizedCrossPostText(data);
+  return normalized ? `sha256:${await sha256Hex(normalized)}` : '';
+}
+
+function sourceForPost(data) {
+  const url = String(data?.url || '');
+  return {
+    platform: data?.platform === 'x' ? 'x' : 'threads',
+    url,
+    publishedAt: String(data?.timestamp || ''),
+    externalKey: postIdentity(url) || url
+  };
+}
+
+function normalizeCrossPostSources(sources) {
+  const byIdentity = new Map();
+  for (const source of Array.isArray(sources) ? sources : []) {
+    if (!['x', 'threads'].includes(source?.platform)) continue;
+    const url = String(source.url || '');
+    const externalKey = String(source.externalKey || postIdentity(url) || url);
+    if (!externalKey) continue;
+    byIdentity.set(externalKey, {
+      platform: source.platform,
+      url,
+      publishedAt: String(source.publishedAt || ''),
+      externalKey
+    });
+  }
+  return [...byIdentity.values()].sort((left, right) => {
+    const time = Date.parse(left.publishedAt) - Date.parse(right.publishedAt);
+    return Number.isFinite(time) && time !== 0 ? time : left.externalKey.localeCompare(right.externalKey);
+  });
+}
+
+function sourcesForPost(data, additional = []) {
+  return normalizeCrossPostSources([...additional, sourceForPost(data)]);
+}
+
+function dedupeScopeKey(settings) {
+  const basePath = normalizeVaultPath(settings.basePath || DEFAULT_BASE_PATH);
+  if (settings.storageProvider === SP2OStorage.PROVIDERS.APPLE_NOTES) {
+    return `${settings.storageProvider}:${settings.accountId || ''}:${settings.folderId || ''}`;
+  }
+  if (settings.storageProvider === SP2OStorage.PROVIDERS.OBSIDIAN_REST) {
+    return `${settings.storageProvider}:${Number(settings.port) || 27123}:${basePath}`;
+  }
+  return `${settings.storageProvider}:${settings.folderName || ''}:${basePath}`;
+}
+
+async function recordContentDedupe(data, settings, ref, sources, fingerprint) {
+  const resolvedFingerprint = fingerprint || await contentFingerprint(data);
+  if (!resolvedFingerprint || !ref) return;
+  const normalizedSources = normalizeCrossPostSources(sources?.length ? sources : [sourceForPost(data)]);
+  await mutateContentDedupeIndex((index) => {
+    const scope = dedupeScopeKey(settings);
+    const scoped = { ...(index[scope] || {}) };
+    const refKey = SP2OStorage.refKey(ref);
+    const entries = (scoped[resolvedFingerprint] || []).filter(entry => SP2OStorage.refKey(entry.ref) !== refKey);
+    entries.push({
+      ref,
+      title: ref.title || '',
+      createdAt: normalizedSources[0]?.publishedAt || data.timestamp || '',
+      platforms: [...new Set(normalizedSources.map(source => source.platform))],
+      sources: normalizedSources
+    });
+    scoped[resolvedFingerprint] = entries;
+    return { ...index, [scope]: scoped };
+  });
+}
+
+async function mutateContentDedupeIndex(mutator) {
+  const task = contentDedupeIndexMutation.then(async () => {
+    const stored = await chrome.storage.local.get(CONTENT_DEDUPE_INDEX_KEY);
+    const index = stored[CONTENT_DEDUPE_INDEX_KEY] || {};
+    const next = await mutator(index);
+    await chrome.storage.local.set({ [CONTENT_DEDUPE_INDEX_KEY]: next });
+    return next;
+  });
+  contentDedupeIndexMutation = task.catch(() => {});
+  return task;
+}
+
+async function removeContentDedupeRefs(refs) {
+  const removed = new Set((refs || []).map(SP2OStorage.refKey));
+  if (!removed.size) return;
+  await mutateContentDedupeIndex((index) => {
+    const next = {};
+    for (const [scope, fingerprints] of Object.entries(index)) {
+      const scoped = {};
+      for (const [fingerprint, entries] of Object.entries(fingerprints || {})) {
+        const retained = (entries || []).filter(entry => !removed.has(SP2OStorage.refKey(entry.ref)));
+        if (retained.length) scoped[fingerprint] = retained;
+      }
+      next[scope] = scoped;
+    }
+    return next;
+  });
+}
+
+function crossPostCandidateEntries(index, settings, fingerprint, platform) {
+  const entries = index?.[dedupeScopeKey(settings)]?.[fingerprint] || [];
+  return entries
+    .filter(entry => !(entry.platforms || []).includes(platform))
+    .sort((left, right) => {
+      const time = Date.parse(left.createdAt) - Date.parse(right.createdAt);
+      return Number.isFinite(time) && time !== 0
+        ? time
+        : SP2OStorage.refKey(left.ref).localeCompare(SP2OStorage.refKey(right.ref));
+    });
+}
+
+async function withCrossPostLock(data, settings, task) {
+  const fingerprint = await contentFingerprint(data);
+  if (!fingerprint) return task('');
+  const key = `cross-post:${dedupeScopeKey(settings)}:${fingerprint}`;
+  const previous = taskChains[key] || Promise.resolve();
+  const current = previous.then(() => task(fingerprint));
+  taskChains[key] = current.catch(() => {});
+  return current;
+}
+
+async function readVaultBinary(filepath, settings) {
+  if (resolveStorageMode(settings) === 'native') {
+    const response = await sendNativeRequest({ action: 'readBinary', path: filepath });
+    const decoded = atob(String(response.data || ''));
+    return Uint8Array.from(decoded, character => character.charCodeAt(0));
+  }
+  let response;
+  try {
+    response = await fetch(`${apiBase(settings.port || 27123)}/vault/${encodeURIComponent(filepath)}`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${settings.apiKey}` }
+    });
+  } catch (error) {
+    error.isObsidianConnectionError = true;
+    throw error;
+  }
+  if (!response.ok) throw new Error(`讀取 Vault 圖片失敗：HTTP ${response.status}`);
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+function recordImagePath(record, image) {
+  if (/^(?:https?:|data:)/i.test(image.target)) return image.target;
+  const noteDirectory = record.ref.path.includes('/')
+    ? record.ref.path.slice(0, record.ref.path.lastIndexOf('/'))
+    : '';
+  return resolveArchiveLink(noteDirectory, image.target);
+}
+
+function nextImageNumber(records) {
+  return Math.max(0, ...records.flatMap(record => (record.images || []).map((image) => {
+    const match = /image-(\d+)\.[a-z0-9]+$/i.exec(image.target);
+    return match ? Number(match[1]) : 0;
+  })));
+}
+
+async function mergedMediaResults(data, canonical, duplicateRecords, settings) {
+  const records = [canonical, ...(duplicateRecords || [])];
+  const canonicalDirectory = canonical.ref.path.includes('/')
+    ? canonical.ref.path.slice(0, canonical.ref.path.lastIndexOf('/'))
+    : '';
+  const assetFolder = noteBasename(canonical.ref.path).replace(/\.md$/i, '');
+  const mediaDirectory = normalizeVaultPath(settings.mediaPath || DEFAULT_MEDIA_PATH);
+  const seenHashes = new Set();
+  const seenRemote = new Set((canonical.images || [])
+    .map(image => image.target)
+    .filter(target => /^(?:https?:|data:)/i.test(target)));
+  const additions = [];
+  let imageNumber = nextImageNumber(records);
+
+  for (const record of records) {
+    for (const image of record.images || []) {
+      const sourcePath = recordImagePath(record, image);
+      if (/^(?:https?:|data:)/i.test(sourcePath)) {
+        if (record !== canonical && !seenRemote.has(sourcePath)) {
+          seenRemote.add(sourcePath);
+          additions.push({ url: sourcePath, alt: image.alt || `圖片 ${++imageNumber}` });
+        }
+        continue;
+      }
+      const bytes = await readVaultBinary(sourcePath, settings);
+      const hash = await sha256Hex(bytes);
+      if (seenHashes.has(hash)) continue;
+      seenHashes.add(hash);
+      if (record === canonical) continue;
+      const extension = /\.([a-z0-9]+)$/i.exec(sourcePath)?.[1]?.toLowerCase() || 'bin';
+      const imageName = `image-${String(++imageNumber).padStart(2, '0')}.${extension}`;
+      const targetPath = `${mediaDirectory}/${assetFolder}/${imageName}`;
+      await saveVaultFile(bytes, targetPath, settings, `image/${extension === 'jpg' ? 'jpeg' : extension}`);
+      additions.push({
+        path: relativeVaultPath(canonicalDirectory, targetPath),
+        alt: image.alt || `圖片 ${imageNumber}`
+      });
+    }
+  }
+
+  for (const item of Array.isArray(data?.media) ? data.media.slice(0, 20) : []) {
+    try {
+      const image = await downloadImage(item.url);
+      const bytes = new Uint8Array(image.bytes);
+      const hash = await sha256Hex(bytes);
+      if (seenHashes.has(hash)) continue;
+      seenHashes.add(hash);
+      const imageName = `image-${String(++imageNumber).padStart(2, '0')}.${image.extension}`;
+      const targetPath = `${mediaDirectory}/${assetFolder}/${imageName}`;
+      await saveVaultFile(bytes, targetPath, settings, image.contentType);
+      additions.push({
+        path: relativeVaultPath(canonicalDirectory, targetPath),
+        alt: item.alt || `圖片 ${imageNumber}`
+      });
+    } catch (error) {
+      if (error.isObsidianApiError || error.isVaultWriteError) throw error;
+      if (!seenRemote.has(item.url)) {
+        seenRemote.add(item.url);
+        additions.push({ url: item.url, alt: item.alt || `圖片 ${imageNumber + 1}`, failed: true });
+      }
+    }
+  }
+  return additions;
+}
+
 // 回報存檔結果：優先在原分頁顯示 toast，分頁不在了才用系統通知
 // backfill：自動補存的結果。分頁端據此不清掉草稿狀態列，補存也不跳系統通知
 // （使用者可能根本不在該分頁前，背景補存不該打斷）。
@@ -1724,7 +2590,7 @@ function classifyPost(data) {
 function publishedPostLocation(data, basePath) {
   const filename = generateFilename(data);
   const category = classifyPost(data);
-  // 最近 7 天留在根目錄方便瀏覽；每週維護再按 category 歸檔。
+  // 最近 7 天留在根目錄方便瀏覽；定期維護再按 category 歸檔。
   return { filename, fullPath: `${basePath}/${filename}`, category };
 }
 
@@ -1955,6 +2821,121 @@ async function prepareNotesPost(data, settings) {
   };
 }
 
+async function readIndexedPost(entry, settings) {
+  if (!entry?.ref) return null;
+  if (entry.ref.provider === SP2OStorage.PROVIDERS.APPLE_NOTES) {
+    const response = await sendNativeRequest({
+      action: 'notesRead',
+      accountId: settings.accountId,
+      noteId: entry.ref.noteId,
+      externalKey: entry.ref.externalKey
+    });
+    return parseNotesPostRecord({
+      noteId: entry.ref.noteId,
+      title: entry.title || entry.ref.title,
+      html: response.html,
+      createdAt: entry.createdAt
+    }, settings);
+  }
+  const markdown = await readVaultFile(entry.ref.path, settings);
+  return parseMarkdownPostRecord(markdown, entry.ref);
+}
+
+async function prepareCrossPlatformPost(data, settings, fingerprint) {
+  if (!fingerprint) return null;
+  const stored = await chrome.storage.local.get(CONTENT_DEDUPE_INDEX_KEY);
+  const candidates = crossPostCandidateEntries(
+    stored[CONTENT_DEDUPE_INDEX_KEY] || {}, settings, fingerprint, data.platform
+  );
+  const staleRefs = [];
+  for (const candidate of candidates) {
+    try {
+      const record = await readIndexedPost(candidate, settings);
+      if (!record || record.fingerprint !== fingerprint || record.platforms.includes(data.platform)) {
+        staleRefs.push(candidate.ref);
+        continue;
+      }
+      record.sources = normalizeCrossPostSources([...(record.sources || []), ...(candidate.sources || [])]);
+      record.platforms = [...new Set(record.sources.map(source => source.platform))];
+      record.createdAt = record.createdAt || candidate.createdAt || '';
+      const sources = sourcesForPost(data, record.sources);
+      const enrichedData = { ...data, contentFingerprint: fingerprint, sources };
+      if (settings.storageProvider === SP2OStorage.PROVIDERS.APPLE_NOTES) {
+        return {
+          filename: record.title,
+          data: enrichedData,
+          merged: true,
+          crossPlatformExisting: true,
+          ref: record.ref,
+          canonicalRecord: record,
+          fingerprint,
+          sources
+        };
+      }
+      return {
+        filename: record.ref.title || noteBasename(record.ref.path),
+        fullPath: record.ref.path,
+        data: enrichedData,
+        merged: true,
+        crossPlatformExisting: true,
+        ref: record.ref,
+        existingMarkdown: await readVaultFile(record.ref.path, settings),
+        canonicalRecord: record,
+        fingerprint,
+        sources
+      };
+    } catch (error) {
+      if (isConnectionError(error)) throw error;
+      staleRefs.push(candidate.ref);
+      console.log('[Social Post to Obsidian] 去重索引項目已失效:', error.message);
+    }
+  }
+  if (staleRefs.length) await removeContentDedupeRefs(staleRefs);
+  return null;
+}
+
+async function uniquePublishedLocation(prepared, data, settings) {
+  if (!prepared.fullPath || prepared.merged || settings.storageProvider === SP2OStorage.PROVIDERS.APPLE_NOTES) {
+    return prepared;
+  }
+  const identity = postIdentity(data.url);
+  let fullPath = prepared.fullPath;
+  let filename = prepared.filename;
+  let suffix = 2;
+  while (await vaultFileExists(fullPath, settings)) {
+    try {
+      const existing = await parseMarkdownPostRecord(
+        await readVaultFile(fullPath, settings),
+        SP2OStorage.fileRef(settings.storageProvider, fullPath, filename, data.url)
+      );
+      if (identity && existing?.sources.some(source => source.externalKey === identity)) return prepared;
+    } catch (error) {
+      if (isConnectionError(error)) throw error;
+    }
+    filename = prepared.filename.replace(/\.md$/i, `_${suffix++}.md`);
+    fullPath = `${settings.basePath || DEFAULT_BASE_PATH}/${filename}`;
+  }
+  return { ...prepared, fullPath, filename };
+}
+
+async function prepareStoragePost(data, settings, fingerprint = '') {
+  const crossPlatform = await prepareCrossPlatformPost(data, settings, fingerprint);
+  if (crossPlatform) return crossPlatform;
+  const prepared = settings.storageProvider === SP2OStorage.PROVIDERS.APPLE_NOTES
+    ? await prepareNotesPost(data, settings)
+    : await preparePublishedPost(data, settings.basePath || DEFAULT_BASE_PATH, settings);
+  const sources = fingerprint ? sourcesForPost(data) : [];
+  const enriched = fingerprint
+    ? {
+      ...prepared,
+      data: { ...prepared.data, contentFingerprint: fingerprint, sources },
+      fingerprint,
+      sources
+    }
+    : prepared;
+  return uniquePublishedLocation(enriched, data, settings);
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -2006,19 +2987,136 @@ function notesPostSectionHtml(data, heading = '') {
   return `${headingHtml}${contentHtml}${replyHtml}${quoteHtml}${mediaHtml}`;
 }
 
+function decodeNotesText(value) {
+  return String(value || '')
+    .replace(/<br\s*\/?\s*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+}
+
+function notesSources(html) {
+  const sourceAt = String(html || '').search(/來源[：:]/);
+  const region = sourceAt >= 0 ? String(html).slice(sourceAt, sourceAt + 4096) : String(html || '');
+  const listSources = [...region.matchAll(/<li>([\s\S]*?)<\/li>/gi)].flatMap((match) => {
+    const url = /https?:\/\/[^\s"'<>]+/i.exec(match[1])?.[0]?.replace(/&amp;/g, '&');
+    if (!url || !postIdentity(url)) return [];
+    const publishedAt = /（(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})）/.exec(decodeNotesText(match[1]))?.[1] || '';
+    return [{
+      platform: /(?:x|twitter)\.com\//i.test(url) ? 'x' : 'threads',
+      url,
+      publishedAt,
+      externalKey: postIdentity(url)
+    }];
+  });
+  if (listSources.length) return normalizeCrossPostSources(listSources);
+  const urls = [...region.matchAll(/https?:\/\/[^\s"'<>]+/gi)].map(match => match[0].replace(/&amp;/g, '&'));
+  const originalTime = /原始時間[：:]<\/strong>\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})/i.exec(String(html || ''))?.[1] || '';
+  return normalizeCrossPostSources(urls.map((url) => ({
+    platform: /(?:x|twitter)\.com\//i.test(url) ? 'x' : 'threads',
+    url,
+    publishedAt: originalTime,
+    externalKey: postIdentity(url) || url
+  })).filter(source => postIdentity(source.url)));
+}
+
+function notesFingerprint(html) {
+  return /內容指紋[：:]<\/strong>\s*(sha256:[a-f0-9]{64})/i.exec(String(html || ''))?.[1] || '';
+}
+
+function notesPostText(html) {
+  const paragraphs = [...String(html || '').matchAll(/<p(?:\s[^>]*)?>([\s\S]*?)<\/p>/gi)]
+    .map(match => decodeNotesText(match[1]).replace(/\s+/gu, ' ').trim())
+    .filter(Boolean)
+    .filter(text => !/^(?:平台|原始時間|內容指紋|母筆記)[：:]/.test(text))
+    .filter(text => !/^圖片\s*\d+(?:\s*·\s*遠端來源)?$/.test(text));
+  return paragraphs.join(' ').replace(/\s+/gu, ' ').trim();
+}
+
+async function parseNotesPostRecord(entry, settings) {
+  const html = String(entry.html || '');
+  const sources = notesSources(html);
+  if (!sources.length || /<strong>回覆[：:]<\/strong>|<blockquote/i.test(html)) return null;
+  const storedFingerprint = notesFingerprint(html);
+  const text = notesPostText(html);
+  const fingerprint = storedFingerprint || (text ? `sha256:${await sha256Hex(text)}` : '');
+  if (!fingerprint) return null;
+  const externalKey = sources[0].externalKey;
+  return {
+    ref: SP2OStorage.notesRef(entry.noteId, entry.title, externalKey),
+    title: entry.title || '未命名貼文',
+    createdAt: entry.createdAt || sources[0].publishedAt || '',
+    fingerprint,
+    platforms: [...new Set(sources.map(source => source.platform))],
+    sources,
+    revision: `sha256:${await sha256Hex(html)}`,
+    manualSections: [],
+    images: [],
+    html,
+    modifiedAt: entry.modifiedAt || ''
+  };
+}
+
+function renderNotesSources(sources) {
+  const normalized = normalizeCrossPostSources(sources);
+  return `<div><strong>來源：</strong><ul>${normalized.map((source) => {
+    const url = safeHtmlUrl(source.url);
+    return `<li>${escapeHtml(platformDisplayName(source.platform))}：${url
+      ? `<a href="${escapeHtml(url)}">${escapeHtml(source.url)}</a>`
+      : escapeHtml(source.url)}${source.publishedAt ? `（${escapeHtml(formatDateTime(source.publishedAt))}）` : ''}</li>`;
+  }).join('')}</ul></div>`;
+}
+
+function mergeCrossPlatformNotesHtml(html, fingerprint, sources, duplicateRecords = []) {
+  const normalized = normalizeCrossPostSources(sources);
+  let result = String(html || '');
+  const platform = `<p><strong>平台：</strong>${escapeHtml([...new Set(normalized.map(source => platformDisplayName(source.platform)))].join('、'))}</p>`;
+  if (/<p><strong>平台[：:]<\/strong>[\s\S]*?<\/p>/i.test(result)) {
+    result = result.replace(/<p><strong>平台[：:]<\/strong>[\s\S]*?<\/p>/i, platform);
+  } else {
+    result = result.replace(/<\/h1>/i, `</h1>${platform}`);
+  }
+  const fingerprintHtml = `<p><strong>內容指紋：</strong>${escapeHtml(fingerprint)}</p>`;
+  if (/<p><strong>內容指紋[：:]<\/strong>[\s\S]*?<\/p>/i.test(result)) {
+    result = result.replace(/<p><strong>內容指紋[：:]<\/strong>[\s\S]*?<\/p>/i, fingerprintHtml);
+  } else if (/<p><strong>原始時間[：:]<\/strong>[\s\S]*?<\/p>/i.test(result)) {
+    result = result.replace(/(<p><strong>原始時間[：:]<\/strong>[\s\S]*?<\/p>)/i, `$1${fingerprintHtml}`);
+  }
+  const sourceBlock = /<(?:div|p)><strong>來源[：:]<\/strong>[\s\S]*?<\/(?:div|p)>/i;
+  if (!sourceBlock.test(result)) throw new Error('既有 Apple 備忘錄缺少來源區塊，無法安全合併');
+  result = result.replace(sourceBlock, renderNotesSources(normalized));
+  const manual = duplicateRecords.flatMap(record => record.manualSections || []);
+  if (manual.length) {
+    result += `<hr><h2>合併保留內容</h2>${manual.map(section => `<h3>保留內容</h3>${section}`).join('')}`;
+  }
+  return result;
+}
+
 function renderNotesHtml(data, title, externalKey, parentTitle = '') {
-  const sourceUrl = safeHtmlUrl(data.url);
-  const source = data.url
-    ? `<p><strong>來源：</strong>${sourceUrl
-      ? `<a href="${escapeHtml(sourceUrl)}">${escapeHtml(data.url)}</a>`
-      : escapeHtml(data.url)}</p>`
+  const sources = normalizeCrossPostSources(data.sources?.length ? data.sources : [sourceForPost(data)]);
+  const source = sources.length
+    ? `<div><strong>來源：</strong><ul>${sources.map((item) => {
+      const sourceUrl = safeHtmlUrl(item.url);
+      return `<li>${escapeHtml(platformDisplayName(item.platform))}：${sourceUrl
+        ? `<a href="${escapeHtml(sourceUrl)}">${escapeHtml(item.url)}</a>`
+        : escapeHtml(item.url)}${item.publishedAt ? `（${escapeHtml(formatDateTime(item.publishedAt))}）` : ''}</li>`;
+    }).join('')}</ul></div>`
     : '';
   const parent = parentTitle ? `<p><strong>母筆記：</strong>${escapeHtml(parentTitle)}</p>` : '';
+  const platforms = [...new Set(sources.map(item => platformDisplayName(item.platform)))];
+  const fingerprint = data.contentFingerprint
+    ? `<p><strong>內容指紋：</strong>${escapeHtml(data.contentFingerprint)}</p>`
+    : '';
   return [
     `<div data-sp2o-key="${escapeHtml(externalKey)}">`,
     `<h1>${escapeHtml(title)}</h1>`,
-    `<p><strong>平台：</strong>${escapeHtml(platformDisplayName(data.platform))}</p>`,
+    `<p><strong>平台：</strong>${escapeHtml(platforms.join('、') || platformDisplayName(data.platform))}</p>`,
     `<p><strong>原始時間：</strong>${escapeHtml(formatDateTime(data.timestamp))}</p>`,
+    fingerprint,
     source,
     parent,
     notesPostSectionHtml(data),
@@ -2072,6 +3170,69 @@ async function saveNotesPublished(data, context, settings) {
   let html;
   let merged = !!context.merged;
   let parentTitle = '';
+
+  if (context.crossPlatformExisting && context.ref?.noteId) {
+    const current = await sendNativeRequest({
+      action: 'notesRead',
+      accountId: settings.accountId,
+      noteId: context.ref.noteId,
+      externalKey: context.ref.externalKey
+    });
+    const record = await parseNotesPostRecord({
+      noteId: context.ref.noteId,
+      title: context.ref.title || title,
+      html: current.html,
+      createdAt: context.canonicalRecord?.createdAt
+    }, settings);
+    if (!record || record.fingerprint !== context.fingerprint) {
+      throw new Error('既有 Apple 備忘錄內容已變更，跨平台合併已取消');
+    }
+    const existingHashes = await sendNativeRequest({
+      action: 'notesAttachmentHashes',
+      accountId: settings.accountId,
+      noteId: context.ref.noteId,
+      externalKey: context.ref.externalKey
+    });
+    const hashes = new Set(existingHashes.hashes || []);
+    const media = await notesAttachments(data);
+    const uniqueAttachments = [];
+    for (const attachment of media.attachments) {
+      const decoded = atob(attachment.data);
+      const bytes = Uint8Array.from(decoded, character => character.charCodeAt(0));
+      const hash = await sha256Hex(bytes);
+      if (hashes.has(hash)) continue;
+      hashes.add(hash);
+      uniqueAttachments.push({ ...attachment, name: `image-${String(hashes.size).padStart(2, '0')}.${attachment.name.split('.').pop()}` });
+    }
+    const html = mergeCrossPlatformNotesHtml(current.html, context.fingerprint, context.sources);
+    const response = await sendNativeRequest({
+      action: 'notesUpsert',
+      accountId: settings.accountId,
+      folderId: settings.folderId,
+      noteId: context.ref.noteId,
+      title: context.ref.title || title,
+      externalKey: context.ref.externalKey,
+      html,
+      attachments: uniqueAttachments
+    });
+    const verified = await sendNativeRequest({
+      action: 'notesRead',
+      accountId: settings.accountId,
+      noteId: response.noteId,
+      externalKey: context.ref.externalKey
+    });
+    if (notesFingerprint(verified.html) !== context.fingerprint
+      || !context.sources.every(source => verified.html.includes(source.externalKey.split(':').pop())
+        || verified.html.includes(source.url))) {
+      throw new Error('Apple 備忘錄跨平台合併讀回驗證失敗');
+    }
+    return {
+      ref: SP2OStorage.notesRef(response.noteId, response.title || title, context.ref.externalKey),
+      savedMedia: uniqueAttachments.length,
+      failedMedia: media.failedMedia,
+      merged: true
+    };
+  }
 
   if (noteId) {
     try {
@@ -2136,6 +3297,214 @@ function renderContentSection(data, singleHeading, threadHeading) {
     return `## ${threadHeading}\n\n${posts.join('\n\n---\n\n')}`;
   }
   return `## ${singleHeading}\n\n${renderCopyableContent(data.content)}`;
+}
+
+function markdownFrontmatter(markdown) {
+  return /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(String(markdown || ''));
+}
+
+function markdownScalar(frontmatter, key) {
+  const line = String(frontmatter || '').split(/\r?\n/).find(item => item.startsWith(`${key}:`));
+  if (!line) return '';
+  const value = line.slice(key.length + 1).trim();
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value.replace(/^['"]|['"]$/g, '');
+  }
+}
+
+function markdownSources(frontmatter) {
+  const lines = String(frontmatter || '').split(/\r?\n/);
+  const start = lines.findIndex(line => line === 'sources:');
+  const sources = [];
+  if (start >= 0) {
+    let current;
+    for (let index = start + 1; index < lines.length; index++) {
+      const line = lines[index];
+      if (!/^\s+/.test(line)) break;
+      const first = /^\s+-\s+platform:\s*(.+)$/.exec(line);
+      const field = /^\s+(url|published_at|external_key):\s*(.+)$/.exec(line);
+      if (first) {
+        if (current) sources.push(current);
+        current = { platform: markdownScalar(`platform: ${first[1]}`, 'platform') };
+      } else if (field && current) {
+        const key = field[1] === 'published_at' ? 'publishedAt'
+          : field[1] === 'external_key' ? 'externalKey' : 'url';
+        current[key] = markdownScalar(`${field[1]}: ${field[2]}`, field[1]);
+      }
+    }
+    if (current) sources.push(current);
+  }
+  if (sources.length) return normalizeCrossPostSources(sources);
+  const url = markdownScalar(frontmatter, 'source_url');
+  const platform = markdownScalar(frontmatter, 'source');
+  return url && ['x', 'threads'].includes(platform)
+    ? normalizeCrossPostSources([{
+      platform,
+      url,
+      publishedAt: markdownScalar(frontmatter, 'created'),
+      externalKey: postIdentity(url) || url
+    }])
+    : [];
+}
+
+function markdownPostItems(markdown) {
+  const match = /\n## (?:貼文內容|串文內容)\r?\n\r?\n([\s\S]*?)(?=\r?\n\r?\n---\r?\n\r?\n(?:## 圖片|> \[!quote\]|> \[!info\] 接續)|\s*$)/.exec(String(markdown || ''));
+  if (!match) return [];
+  const lines = match[1].split(/\r?\n/);
+  const items = [];
+  for (let index = 0; index < lines.length; index++) {
+    const fence = /^(`{3,})$/.exec(lines[index]);
+    if (!fence) continue;
+    const content = [];
+    index++;
+    while (index < lines.length && lines[index] !== fence[1]) content.push(lines[index++]);
+    items.push(content.join('\n'));
+  }
+  return items;
+}
+
+function markdownManualSections(markdown) {
+  const body = String(markdown || '').replace(markdownFrontmatter(markdown)?.[0] || '', '').trim();
+  return body.split(/\r?\n\r?\n---\r?\n\r?\n/).filter((section) => {
+    const value = section.trim();
+    return value
+      && !value.startsWith('> [!info] 貼文資訊')
+      && !value.startsWith('## 貼文內容')
+      && !value.startsWith('## 串文內容')
+      && !value.startsWith('## 圖片')
+      && !value.startsWith('> [!quote]')
+      && !value.startsWith('> [!info] 接續');
+  }).map(section => section.trim());
+}
+
+function markdownImageLinks(markdown) {
+  return [...String(markdown || '').matchAll(/^!\[([^\n]*)\]\(<([^>]+)>\)$/gm)]
+    .map(match => ({ alt: match[1], target: match[2].replace(/%3E/gi, '>') }));
+}
+
+async function parseMarkdownPostRecord(markdown, ref) {
+  const frontmatterMatch = markdownFrontmatter(markdown);
+  if (!frontmatterMatch) return null;
+  const frontmatter = frontmatterMatch[1];
+  if (markdownScalar(frontmatter, 'status') !== 'published') return null;
+  if (markdownScalar(frontmatter, 'reply_to') || markdownScalar(frontmatter, 'quoted_url')
+    || markdownScalar(frontmatter, 'quoted_from')) return null;
+  const sources = markdownSources(frontmatter);
+  if (!sources.length) return null;
+  const items = markdownPostItems(markdown);
+  const normalized = items.join(' ').replace(/\s+/gu, ' ').trim();
+  if (!normalized) return null;
+  const fingerprint = `sha256:${await sha256Hex(normalized)}`;
+  return {
+    ref,
+    title: markdownScalar(frontmatter, 'title') || ref.title || noteBasename(ref.path),
+    createdAt: markdownScalar(frontmatter, 'created') || sources[0].publishedAt || '',
+    fingerprint,
+    platforms: [...new Set(sources.map(source => source.platform))],
+    sources,
+    revision: `sha256:${await sha256Hex(String(markdown || ''))}`,
+    manualSections: markdownManualSections(markdown),
+    images: markdownImageLinks(markdown)
+  };
+}
+
+function crossPostFrontmatterLines(fingerprint, sources) {
+  const normalized = normalizeCrossPostSources(sources);
+  const platforms = [...new Set(normalized.map(source => platformDisplayName(source.platform)))];
+  return [
+    `content_fingerprint: ${escapeYaml(fingerprint)}`,
+    'platforms:',
+    ...platforms.map(platform => `  - ${escapeYaml(platform)}`),
+    'sources:',
+    ...normalized.flatMap(source => [
+      `  - platform: ${escapeYaml(source.platform)}`,
+      `    url: ${escapeYaml(source.url)}`,
+      `    published_at: ${escapeYaml(source.publishedAt)}`,
+      `    external_key: ${escapeYaml(source.externalKey)}`
+    ])
+  ];
+}
+
+function replaceCrossPostFrontmatter(markdown, fingerprint, sources) {
+  const match = markdownFrontmatter(markdown);
+  if (!match) throw new Error('既有筆記缺少 YAML frontmatter，無法安全合併');
+  const lines = match[1].split(/\r?\n/);
+  const retained = [];
+  for (let index = 0; index < lines.length; index++) {
+    if (/^(?:content_fingerprint|platforms|sources):/.test(lines[index])) {
+      while (index + 1 < lines.length && /^\s+/.test(lines[index + 1])) index++;
+      continue;
+    }
+    retained.push(lines[index]);
+  }
+  const insertAt = Math.max(0, retained.findIndex(line => line.startsWith('source_url:')) + 1);
+  retained.splice(insertAt, 0, ...crossPostFrontmatterLines(fingerprint, sources));
+  const platformNames = [...new Set(normalizeCrossPostSources(sources).map(source => platformDisplayName(source.platform)))];
+  const tagsAt = retained.findIndex(line => line === 'tags:');
+  if (tagsAt >= 0) {
+    let tagsEnd = tagsAt + 1;
+    while (tagsEnd < retained.length && /^\s+-\s+/.test(retained[tagsEnd])) tagsEnd++;
+    const tags = retained.slice(tagsAt + 1, tagsEnd).map(line => markdownScalar(`tag: ${line.replace(/^\s+-\s+/, '')}`, 'tag'));
+    for (const platform of platformNames) {
+      if (!tags.includes(platform)) retained.splice(tagsEnd++, 0, `  - ${escapeYaml(platform)}`);
+    }
+  }
+  return String(markdown).replace(match[0], `---\n${retained.join('\n')}\n---\n`);
+}
+
+function replaceCrossPostInfo(markdown, sources) {
+  const normalized = normalizeCrossPostSources(sources);
+  const platforms = [...new Set(normalized.map(source => platformDisplayName(source.platform)))];
+  const existing = /> \[!info\] 貼文資訊\r?\n([\s\S]*?)(?=\r?\n\r?\n---\r?\n\r?\n)/.exec(markdown);
+  if (!existing) throw new Error('既有筆記缺少貼文資訊區塊，無法安全合併');
+  const type = /^> \*\*類型\*\*：.*$/m.exec(existing[0])?.[0];
+  const time = /^> \*\*發佈時間\*\*：.*$/m.exec(existing[0])?.[0];
+  const lines = [
+    '> [!info] 貼文資訊',
+    `> **平台**：${platforms.join('、')}  `,
+    ...(type ? [type.endsWith('  ') ? type : `${type}  `] : []),
+    ...(time ? [time.endsWith('  ') ? time : `${time}  `] : []),
+    ...normalized.map((source, index) => (
+      `> **原始貼文${normalized.length > 1 ? ` ${index + 1}` : ''}**：[在 ${platformDisplayName(source.platform)} 查看](<${markdownLinkTarget(source.url)}>)${index < normalized.length - 1 ? '  ' : ''}`
+    ))
+  ];
+  return markdown.replace(existing[0], lines.join('\n'));
+}
+
+function appendMergedManualSections(markdown, records) {
+  const sections = records.flatMap(record => (record.manualSections || []).map(section => ({ record, section })));
+  if (!sections.length) return markdown;
+  const existing = new Set(markdownManualSections(markdown));
+  const additions = sections.filter(item => !existing.has(item.section));
+  if (!additions.length) return markdown;
+  const body = additions.map(({ record, section }) => (
+    `### 來自「${record.title}」（${record.createdAt || '時間不明'}）\n\n${section}`
+  )).join('\n\n');
+  const heading = markdown.includes('\n## 合併保留內容\n') ? '' : '## 合併保留內容\n\n';
+  return `${markdown.replace(/\s*$/, '')}\n\n---\n\n${heading}${body}\n`;
+}
+
+function appendMergedImages(markdown, mediaResults) {
+  if (!mediaResults.length) return markdown;
+  const imageMarkdown = mediaResults.map(item => (
+    `![${escapeMarkdownAlt(item.alt)}](<${markdownLinkTarget(item.path || item.url)}>)`
+  )).join('\n\n');
+  const imageSection = /\n## 圖片\n\n([\s\S]*?)(?=\n\n---\n\n|\s*$)/.exec(markdown);
+  if (imageSection) {
+    const replacement = `${imageSection[0].replace(/\s*$/, '')}\n\n${imageMarkdown}`;
+    return markdown.replace(imageSection[0], replacement);
+  }
+  return `${markdown.replace(/\s*$/, '')}\n\n---\n\n## 圖片\n\n${imageMarkdown}\n`;
+}
+
+function mergeCrossPlatformMarkdown(markdown, fingerprint, sources, duplicateRecords = [], mediaResults = []) {
+  let result = replaceCrossPostFrontmatter(markdown, fingerprint, sources);
+  result = replaceCrossPostInfo(result, sources);
+  result = appendMergedManualSections(result, duplicateRecords);
+  result = appendMergedImages(result, mediaResults);
+  return result.replace(/\s*$/, '\n');
 }
 
 // expectedUrls：這則回覆應該接上的母貼文 URL。用 frontmatter 的 source_url 核對，
@@ -2271,6 +3640,8 @@ function generateMarkdown(data, mediaResults = [], threadRoot = '') {
   const title = extractTitle(threadItems[0] || data.content || '圖片貼文');
   const created = formatDateTime(data.timestamp);
   const platformName = platformDisplayName(data.platform);
+  const sources = normalizeCrossPostSources(data.sources?.length ? data.sources : [sourceForPost(data)]);
+  const platforms = [...new Set(sources.map(source => platformDisplayName(source.platform)))];
   const frontmatter = [
     '---',
     `title: ${escapeYaml(title)}`,
@@ -2278,6 +3649,18 @@ function generateMarkdown(data, mediaResults = [], threadRoot = '') {
     `platform: ${escapeYaml(platformName)}`,
     `source: ${escapeYaml(data.platform)}`,
     `source_url: ${escapeYaml(data.url)}`,
+    ...(data.contentFingerprint ? [`content_fingerprint: ${escapeYaml(data.contentFingerprint)}`] : []),
+    ...(data.contentFingerprint ? [
+      'platforms:',
+      ...platforms.map(platform => `  - ${escapeYaml(platform)}`),
+      'sources:',
+      ...sources.flatMap(source => [
+        `  - platform: ${escapeYaml(source.platform)}`,
+        `    url: ${escapeYaml(source.url)}`,
+        `    published_at: ${escapeYaml(source.publishedAt)}`,
+        `    external_key: ${escapeYaml(source.externalKey)}`
+      ])
+    ] : []),
     `status: ${escapeYaml('published')}`,
     ...(category ? [`post_type: ${escapeYaml(category.type)}`] : []),
     ...(threadItems.length > 1 ? [`thread_count: ${threadItems.length}`] : [])
@@ -2302,7 +3685,7 @@ function generateMarkdown(data, mediaResults = [], threadRoot = '') {
     );
   }
 
-  const tags = ['社群貼文', platformName];
+  const tags = ['社群貼文', ...(platforms.length ? platforms : [platformName])];
   if (category) tags.push(category.label);
   if (threadItems.length > 1 && !tags.includes('串文')) tags.push('串文');
   if (data.quoted && !tags.includes('引用')) tags.push('引用');
@@ -2316,12 +3699,12 @@ function generateMarkdown(data, mediaResults = [], threadRoot = '') {
 
   const info = [
     '> [!info] 貼文資訊',
-    `> **平台**：${platformName}  `,
+    `> **平台**：${platforms.join('、') || platformName}  `,
     ...(category ? [`> **類型**：${category.label}  `] : []),
     `> **發佈時間**：${created}${data.url || data.replyTo ? '  ' : ''}`,
-    ...(data.url ? [
-      `> **原始貼文**：[在 ${platformName} 查看](<${markdownLinkTarget(data.url)}>)${data.replyTo ? '  ' : ''}`
-    ] : []),
+    ...sources.map((source, index) => (
+      `> **原始貼文${sources.length > 1 ? ` ${index + 1}` : ''}**：[在 ${platformDisplayName(source.platform)} 查看](<${markdownLinkTarget(source.url)}>)${data.replyTo || index < sources.length - 1 ? '  ' : ''}`
+    )),
     ...(data.replyTo ? [
       `> **回覆對象**：[查看原始貼文](<${markdownLinkTarget(data.replyTo)}>)`
     ] : [])

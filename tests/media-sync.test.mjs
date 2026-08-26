@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash, webcrypto } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -87,6 +88,10 @@ assert.doesNotMatch(
   /window\.addEventListener\('focus',[\s\S]*?syncStorageActivity/,
   'Popup 開啟時不得因 focus 再做一次重複同步'
 );
+assert.match(popupHtml, /id="duplicateScanBtn"/, 'Popup 必須提供手動重複文章掃描入口');
+assert.match(popupScript, /SCAN_DUPLICATE_POSTS/, '重複文章掃描必須交給 background');
+assert.match(popupScript, /MERGE_DUPLICATE_POSTS/, '確認後的合併必須交給 background');
+assert.match(popupScript, /GET_DUPLICATE_SCAN_SESSION/, 'Popup 重開後必須能恢復尚未確認的掃描預覽');
 
 // 新使用者從 Web Store 安裝後，直接執行 Helper installer 也必須被授權；
 // 不能要求使用者先知道並手動傳入正式 extension ID。
@@ -867,7 +872,7 @@ try {
   assert.deepEqual(sendNativeHostMessage({ action: 'ping' }, configDirectory), {
     ok: true,
     configured: false,
-    version: '1.8.2'
+    version: '1.9.2'
   });
 
   // framing 錯誤：host 需回傳 framed 錯誤訊息後結束，而不是直接崩潰
@@ -898,7 +903,12 @@ if [ "\${SP2O_FAKE_DENY:-}" = "1" ]; then
 fi
 case "$2" in
   *"repeat with noteAccount"*) printf 'account-local\\037我的 Mac\\037folder-test\\037社群貼文測試\\036' ;;
+  *"set folderNotes to notes"*) printf '1\\036note-list\\037掃描測試\\0372026-08-01T01:00:00Z\\0372026-08-02T01:00:00Z\\037%s\\036' "\${SP2O_FAKE_BODY:-}" ;;
   *"return body of targetNote"*) printf '%s' "\${SP2O_FAKE_BODY:-}" ;;
+  *"repeat with targetAttachment in attachments"*)
+    printf '\\001\\002\\003' > "$6/attachment-1"
+    printf 'image-01.jpg\\037%s\\036' "$6/attachment-1"
+    ;;
   *"delete targetNote"*)
     case "\${SP2O_FAKE_BODY:-}" in
       *"$6"*) printf '' ;;
@@ -945,6 +955,66 @@ esac
     '<p><strong>來源：</strong><a href="https://x.com/author/status/123456">',
     'https://x.com/author/status/123456</a></p><p>使用者手動補充</p></div>'
   ].join('');
+  const fakeNotesList = sendNativeHostMessage({
+    action: 'notesListPosts',
+    accountId: 'account-local',
+    folderId: 'folder-test',
+    cursor: 0,
+    limit: 10
+  }, configDirectory, {
+    ...fakeNotesEnv,
+    SP2O_FAKE_BODY: notesBodyWithoutCustomAttribute
+  });
+  assert.equal(fakeNotesList.ok, true, JSON.stringify(fakeNotesList));
+  assert.doesNotMatch(
+    readFileSync('native/host.rb', 'utf8'),
+    /as «class isot»/,
+    'Notes 日期不得依賴在部分 macOS 環境會失敗的 «class isot» 轉型'
+  );
+  assert.equal(fakeNotesList.entries.length, 1);
+  assert.equal(fakeNotesList.entries[0].noteId, 'note-list');
+  assert.equal(fakeNotesList.entries[0].createdAt, '2026-08-01T01:00:00Z');
+  const fakeAttachmentHashes = sendNativeHostMessage({
+    action: 'notesAttachmentHashes',
+    accountId: 'account-local',
+    noteId: 'note-edited',
+    externalKey: 'x:123456'
+  }, configDirectory, {
+    ...fakeNotesEnv,
+    SP2O_FAKE_BODY: notesBodyWithoutCustomAttribute
+  });
+  assert.deepEqual(fakeAttachmentHashes.hashes, [
+    createHash('sha256').update(Buffer.from([1, 2, 3])).digest('hex')
+  ]);
+  const fakeMergedNotesBody = [
+    '<div><strong>來源：</strong><ul>',
+    '<li><a href="https://x.com/author/status/123456">X</a></li>',
+    '<li><a href="https://www.threads.com/@author/post/ABC123">Threads</a></li>',
+    '</ul></div>'
+  ].join('');
+  const fakeNotesRevision = `sha256:${createHash('sha256').update(fakeMergedNotesBody).digest('hex')}`;
+  const fakeNotesMerge = sendNativeHostMessage({
+    action: 'notesMergeDuplicates',
+    accountId: 'account-local',
+    folderId: 'folder-test',
+    canonical: {
+      noteId: 'note-canonical',
+      externalKey: 'x:123456',
+      revision: fakeNotesRevision,
+      title: '合併後筆記',
+      html: fakeMergedNotesBody
+    },
+    duplicates: [{
+      noteId: 'note-duplicate',
+      externalKey: 'threads:ABC123',
+      revision: fakeNotesRevision
+    }]
+  }, configDirectory, {
+    ...fakeNotesEnv,
+    SP2O_FAKE_BODY: fakeMergedNotesBody
+  });
+  assert.equal(fakeNotesMerge.ok, true, JSON.stringify(fakeNotesMerge));
+  assert.equal(fakeNotesMerge.merged, 1);
   assert.equal(sendNativeHostMessage({
     action: 'notesDelete',
     accountId: 'account-local',
@@ -996,6 +1066,13 @@ esac
   }, configDirectory), {
     ok: true,
     data: '---\nsource_url: "https://x.com/me/status/1001"\n---\n\n# native'
+  });
+  assert.deepEqual(sendNativeHostMessage({
+    action: 'readBinary',
+    path: '個人創作/社群推文/test.md'
+  }, configDirectory), {
+    ok: true,
+    data: Buffer.from('---\nsource_url: "https://x.com/me/status/1001"\n---\n\n# native').toString('base64')
   });
 
   // 補存比對要同時拿檔名與 source_url：後者才能在摘要空白不同時精準辨識同一則。
@@ -1139,6 +1216,52 @@ esac
     existsSync(join(vaultPath, '個人創作', '社群推文', '串文')),
     false
   );
+
+  // Chrome 啟動 Native Helper 時不帶 LANG，Ruby 的 filesystem encoding 會退成 US-ASCII，
+  // 中文檔名會被標成非 UTF-8，與 UTF-8 正文串接時整批封存會沉默失敗。
+  {
+    const asciiLocale = { LANG: 'C', LC_ALL: 'C' };
+    assert.equal(sendNativeHostMessage({
+      action: 'write',
+      path: '個人創作/社群推文/2026-07-20_1041_中文檔名的貼文🥳.md',
+      encoding: 'utf8',
+      data: [
+        '---',
+        'created: "2026-07-20 10:41"',
+        'source: "x"',
+        'source_url: "https://x.com/me/status/2079"',
+        'status: "published"',
+        'post_type: "post"',
+        '---',
+        '',
+        '含中文與 emoji 🥳 的正文。',
+        '',
+        '![圖片 1](<../../附件/Social Post to Obsidian/中文資料夾/image-01.jpg>)'
+      ].join('\n')
+    }, configDirectory).ok, true);
+    const asciiLocaleArchive = sendNativeHostMessage({
+      action: 'archiveSocialPosts',
+      path: '個人創作/社群推文',
+      olderThan: '2026-07-21T00:00:00+08:00'
+    }, configDirectory, asciiLocale);
+    assert.equal(
+      asciiLocaleArchive.ok,
+      true,
+      `LANG=C 下封存中文檔名必須成功，實際錯誤：${asciiLocaleArchive.error}`
+    );
+    assert.deepEqual(asciiLocaleArchive.moved, [{
+      from: '個人創作/社群推文/2026-07-20_1041_中文檔名的貼文🥳.md',
+      to: '個人創作/社群推文/Archive/發文/2026-07-20_1041_中文檔名的貼文🥳.md'
+    }]);
+    assert.match(
+      readFileSync(
+        join(vaultPath, '個人創作', '社群推文', 'Archive', '發文', '2026-07-20_1041_中文檔名的貼文🥳.md'),
+        'utf8'
+      ),
+      /<\.\.\/\.\.\/\.\.\/\.\.\/附件\/Social Post to Obsidian\/中文資料夾\/image-01\.jpg>/,
+      'LANG=C 下圖片相對連結仍要正確改寫'
+    );
+  }
 
   assert.equal(sendNativeHostMessage({
     action: 'exists',
@@ -1339,7 +1462,7 @@ assert.deepEqual(JSON.parse(JSON.stringify(parsedThreadsInlineMedia.media)), [
 
 function loadBackground(initialStored = {}, storageOptions = {}) {
   const storedBacking = {
-    storageSchemaVersion: 2,
+    storageSchemaVersion: 3,
     storageProvider: 'markdown-folder',
     markdownFolderSettings: {
       basePath: '個人創作/社群推文',
@@ -1408,13 +1531,16 @@ function loadBackground(initialStored = {}, storageOptions = {}) {
   let nativeNames = null;
   let nativeEntries = null;
   let nativeArchiveMoves = [];
+  let restFiles = null;
   const alarmCreates = [];
-  const alarms = new Map();
+  const alarmClears = [];
+  const alarms = new Map((storageOptions.initialAlarms || []).map(alarm => [alarm.name, alarm]));
   const createdTabs = [];
   const removedTabs = [];
   const tabMessages = [];
   let nextTabId = 700;
   let alarmListener = null;
+  let messageListener = null;
   let storageWriteCount = 0;
 
   function storageReadValue(key, value) {
@@ -1449,7 +1575,7 @@ function loadBackground(initialStored = {}, storageOptions = {}) {
           return {
             ok: true,
             configured: true,
-            version: '1.8.2',
+            version: '1.9.2',
             folderName: 'Test Vault',
             vaultName: 'Test Vault',
             isObsidianVault: true
@@ -1459,14 +1585,27 @@ function loadBackground(initialStored = {}, storageOptions = {}) {
           return { ok: true, configured: true, version: '1.1.2', vaultName: 'Chosen Vault' };
         }
         if (message.action === 'exists') {
-          return { ok: true, exists: nativeMode !== 'missing' };
+          return { ok: true, exists: nativeMode !== 'missing' && nativeFiles.has(message.path) };
         }
         if (message.action === 'read') {
           if (!nativeFiles.has(message.path)) return { ok: false, error: 'Vault file not found' };
           return { ok: true, data: nativeFiles.get(message.path) };
         }
+        if (message.action === 'readBinary') {
+          if (!nativeFiles.has(message.path)) return { ok: false, error: 'Vault file not found' };
+          const value = nativeFiles.get(message.path);
+          const bytes = typeof value === 'string' ? Buffer.from(value) : Buffer.from(value);
+          return { ok: true, data: bytes.toString('base64') };
+        }
         if (message.action === 'write' && message.encoding !== 'base64') {
           nativeFiles.set(message.path, String(message.data || ''));
+        }
+        if (message.action === 'write' && message.encoding === 'base64') {
+          nativeFiles.set(message.path, Buffer.from(String(message.data || ''), 'base64'));
+        }
+        if (message.action === 'remove') {
+          nativeFiles.delete(message.path);
+          return { ok: true };
         }
         // 舊版 Host 不認得 list，會回沒有 names 的結果；呼叫端必須能退回逐檔比對
         if (message.action === 'list') {
@@ -1493,7 +1632,10 @@ function loadBackground(initialStored = {}, storageOptions = {}) {
           return { ok: true, configured: message.folderId === 'folder-test', exists: message.folderId === 'folder-test' };
         }
         if (message.action === 'notesFind') {
-          const found = [...nativeNotes.values()].find(note => note.externalKey === message.externalKey);
+          const identityPart = String(message.externalKey || '').split(':').pop();
+          const found = [...nativeNotes.values()].find(note => (
+            note.externalKey === message.externalKey || String(note.html || '').includes(identityPart)
+          ));
           return found
             ? { ok: true, found: true, noteId: found.noteId, title: found.title, externalKey: found.externalKey }
             : { ok: true, found: false };
@@ -1504,14 +1646,42 @@ function loadBackground(initialStored = {}, storageOptions = {}) {
           if (note.locked) return { ok: false, code: 'NOTES_LOCKED', error: 'Apple 備忘錄已鎖定' };
           return { ok: true, html: note.html, externalKey: note.externalKey };
         }
+        if (message.action === 'notesListPosts') {
+          const entries = [...nativeNotes.values()].slice(message.cursor || 0, (message.cursor || 0) + (message.limit || 10))
+            .map(note => ({
+              noteId: note.noteId,
+              title: note.title,
+              html: note.html,
+              createdAt: note.createdAt || '2026-08-01T00:00:00+08:00',
+              modifiedAt: note.modifiedAt || '2026-08-01T00:00:00+08:00'
+            }));
+          const next = (message.cursor || 0) + entries.length;
+          return { ok: true, entries, nextCursor: next < nativeNotes.size ? next : null };
+        }
+        if (message.action === 'notesAttachmentHashes') {
+          const note = nativeNotes.get(message.noteId);
+          const entries = [];
+          for (const attachment of note?.attachments || []) {
+            const bytes = Buffer.from(String(attachment.data || ''), 'base64');
+            const digest = await webcrypto.subtle.digest('SHA-256', bytes);
+            const hash = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+            entries.push({ name: attachment.name, hash });
+          }
+          return { ok: true, entries, hashes: entries.map(entry => entry.hash) };
+        }
         if (message.action === 'notesUpsert') {
           const noteId = message.noteId || `note-${nativeNotes.size + 1}`;
+          const previousAttachments = nativeNotes.get(noteId)?.attachments || [];
+          const incomingNames = new Set((message.attachments || []).map(attachment => attachment.name));
           nativeNotes.set(noteId, {
             noteId,
             title: message.title,
             html: message.html,
             externalKey: message.externalKey,
-            attachments: message.attachments || []
+            attachments: [
+              ...previousAttachments.filter(attachment => !incomingNames.has(attachment.name)),
+              ...(message.attachments || [])
+            ]
           });
           return {
             ok: true,
@@ -1529,11 +1699,18 @@ function loadBackground(initialStored = {}, storageOptions = {}) {
           nativeNotes.delete(message.noteId);
           return { ok: true };
         }
+        if (message.action === 'notesMergeDuplicates') {
+          const note = nativeNotes.get(message.canonical.noteId);
+          if (!note) return { ok: false, code: 'NOTES_NOT_FOUND', error: '找不到 Apple 備忘錄' };
+          note.html = message.canonical.html;
+          for (const duplicate of message.duplicates || []) nativeNotes.delete(duplicate.noteId);
+          return { ok: true, noteId: note.noteId, merged: (message.duplicates || []).length, savedMedia: 0 };
+        }
         if (message.action === 'notesShow') return { ok: true };
         if (message.action === 'cleanEmptyMediaFolders') return { ok: true, removed: 1 };
         return { ok: true };
       },
-      onMessage: { addListener() {} }
+      onMessage: { addListener(listener) { messageListener = listener; } }
     },
     storage: {
       local: {
@@ -1558,7 +1735,10 @@ function loadBackground(initialStored = {}, storageOptions = {}) {
         alarmCreates.push({ name, options });
         alarms.set(name, { name, ...options });
       },
-      clear(name) { alarms.delete(name); },
+      clear(name) {
+        alarmClears.push(name);
+        alarms.delete(name);
+      },
       get(name, callback) { callback(alarms.get(name) || null); },
       onAlarm: {
         addListener(listener) { alarmListener = listener; }
@@ -1602,6 +1782,34 @@ function loadBackground(initialStored = {}, storageOptions = {}) {
       if (localMode === 'offline') throw new TypeError('Failed to fetch');
       if (localMode === 'unauthorized') return new Response(null, { status: 401 });
       if (localMode === 'missing' && init.method === 'GET') return new Response(null, { status: 404 });
+      const encodedPath = String(url).split('/vault/')[1] || '';
+      const directoryRequest = encodedPath.endsWith('/');
+      const vaultPath = decodeURIComponent(directoryRequest ? encodedPath.slice(0, -1) : encodedPath);
+      if ((init.method || 'GET') === 'GET' && directoryRequest) {
+        const prefix = vaultPath ? `${vaultPath}/` : '';
+        const files = [...new Set([...(restFiles || new Map()).keys()]
+          .filter(path => path.startsWith(prefix))
+          .map((path) => {
+            const remainder = path.slice(prefix.length);
+            const slash = remainder.indexOf('/');
+            return slash >= 0 ? `${remainder.slice(0, slash)}/` : remainder;
+          }).filter(Boolean))];
+        return Response.json({ files });
+      }
+      if ((init.method || 'GET') === 'GET') {
+        return restFiles?.has(vaultPath)
+          ? new Response(restFiles.get(vaultPath), { status: 200, headers: { 'content-type': 'text/markdown' } })
+          : new Response(null, { status: 404 });
+      }
+      if (init.method === 'PUT') {
+        if (!restFiles) restFiles = new Map();
+        restFiles.set(vaultPath, typeof init.body === 'string' ? init.body : Buffer.from(init.body).toString('binary'));
+        return new Response(null, { status: 204 });
+      }
+      if (init.method === 'DELETE') {
+        const existed = restFiles?.delete(vaultPath) === true;
+        return new Response(null, { status: existed ? 204 : 404 });
+      }
       return new Response(null, { status: 204 });
     }
     throw new Error(`Unexpected fetch: ${url}`);
@@ -1610,13 +1818,16 @@ function loadBackground(initialStored = {}, storageOptions = {}) {
   const sandbox = {
     console,
     chrome,
+    crypto: webcrypto,
     fetch: fetchStub,
     Response,
     URL,
     ArrayBuffer,
     Uint8Array,
+    TextEncoder,
     Date,
     btoa,
+    atob,
     setTimeout,
     clearTimeout
   };
@@ -1628,6 +1839,7 @@ function loadBackground(initialStored = {}, storageOptions = {}) {
   vm.runInContext(readFileSync('background.js', 'utf8'), context);
   return {
     alarmCreates,
+    alarmClears,
     context,
     createdTabs,
     nativeMessages,
@@ -1637,6 +1849,8 @@ function loadBackground(initialStored = {}, storageOptions = {}) {
     stored,
     tabMessages,
     fireAlarm(name) { alarmListener?.({ name }); },
+    fireMessage(message) { messageListener?.(message, {}, () => {}); },
+    waitForTasks() { return vm.runInContext('Promise.all(Object.values(taskChains))', context); },
     setNativeMode(mode) { nativeMode = mode; },
     setNativeNames(names) { nativeNames = names; },
     setNativeListing(names, entries) {
@@ -1644,9 +1858,17 @@ function loadBackground(initialStored = {}, storageOptions = {}) {
       nativeEntries = entries;
     },
     setNativeArchiveMoves(moves) { nativeArchiveMoves = moves; },
+    setRestFile(path, data) {
+      if (!restFiles) restFiles = new Map();
+      restFiles.set(path, data);
+    },
+    getRestFile(path) { return restFiles?.get(path); },
+    hasRestFile(path) { return restFiles?.has(path) === true; },
+    getRestPaths() { return [...(restFiles || new Map()).keys()]; },
     setNativeFile(path, data) { nativeFiles.set(path, data); },
     setNativeNote(note) { nativeNotes.set(note.noteId, { ...note }); },
     getNativeNote(noteId) { return nativeNotes.get(noteId); },
+    getNativeNotes() { return [...nativeNotes.values()]; },
     setLocalMode(mode) { localMode = mode; }
   };
 }
@@ -1672,9 +1894,14 @@ assert.equal(legacyMigration.updates.recentSaves[0].ref.provider, 'obsidian-rest
 assert.equal(legacyMigration.updates.offlineQueue[0].data.rawMarkdown, '# 尚未補存');
 assert.equal('markdown' in legacyMigration.updates.offlineQueue[0], false);
 assert.equal(
-  background.context.SP2OStorage.migrationFor({ storageSchemaVersion: 2 }).changed,
+  background.context.SP2OStorage.migrationFor({ storageSchemaVersion: 3 }).changed,
   false,
   'schema migration 必須可重跑且不重複改寫'
+);
+assert.equal(background.context.SP2OStorage.migrationFor({ storageSchemaVersion: 2 }).changed, true);
+assert.deepEqual(
+  JSON.parse(JSON.stringify(background.context.SP2OStorage.migrationFor({ storageSchemaVersion: 2 }).updates.contentDedupeIndex)),
+  {}
 );
 for (const providerId of ['markdown-folder', 'obsidian-rest', 'apple-notes']) {
   const adapter = background.context.getProvider({ storageProvider: providerId });
@@ -1682,7 +1909,15 @@ for (const providerId of ['markdown-folder', 'obsidian-rest', 'apple-notes']) {
     assert.equal(typeof adapter[method], 'function', `${providerId} 必須實作 ${method}`);
   }
 }
+assert.equal(background.context.getProvider({ storageProvider: 'markdown-folder' }).capabilities.archive, true);
+assert.equal(background.context.getProvider({ storageProvider: 'obsidian-rest' }).capabilities.archive, true);
 assert.equal(background.context.getProvider({ storageProvider: 'apple-notes' }).capabilities.archive, false);
+for (const providerId of ['markdown-folder', 'obsidian-rest', 'apple-notes']) {
+  const adapter = background.context.getProvider({ storageProvider: providerId });
+  for (const method of ['scanPublished', 'mergeDuplicateGroup']) {
+    assert.equal(typeof adapter[method], 'function', `${providerId} 必須實作 ${method}`);
+  }
+}
 const migratedBackground = loadBackground({
   storageSchemaVersion: undefined,
   storageProvider: undefined,
@@ -1697,7 +1932,7 @@ const migratedBackground = loadBackground({
   recentSaves: [{ filename: 'legacy.md', path: '遷移筆記/legacy.md', platform: 'x' }]
 });
 await new Promise(resolve => setImmediate(resolve));
-assert.equal(migratedBackground.stored.storageSchemaVersion, 2);
+assert.equal(migratedBackground.stored.storageSchemaVersion, 3);
 assert.equal(migratedBackground.stored.storageProvider, 'obsidian-rest');
 assert.equal(migratedBackground.stored.obsidianRestSettings.apiKey, 'migrated-key');
 assert.equal(migratedBackground.stored.recentSaves[0].ref.path, '遷移筆記/legacy.md');
@@ -1725,7 +1960,7 @@ await assert.doesNotReject(
   () => reorderedMigrationBackground.context.ensureStorageSchema(),
   'storage 讀回物件 key 順序不同時，內容相同的 migration 不得被誤判失敗'
 );
-assert.equal(reorderedMigrationBackground.stored.storageSchemaVersion, 2);
+assert.equal(reorderedMigrationBackground.stored.storageSchemaVersion, 3);
 assert.equal(reorderedMigrationBackground.stored.recentSaves[0].ref.path, '順序測試/order.md');
 assert.equal('basePath' in reorderedMigrationBackground.stored, false);
 
@@ -1802,9 +2037,9 @@ assert.deepEqual(
   {
     ok: false,
     code: 'NATIVE_HOST_UPDATE_REQUIRED',
-    error: '本機 Helper 版本過舊（目前 1.7.0，需要 1.8.2 以上）。請重新執行最新版 Helper 安裝程式，再重新載入擴充功能。',
+    error: '本機 Helper 版本過舊（目前 1.7.0，需要 1.9.2 以上）。請重新執行最新版 Helper 安裝程式，再重新載入擴充功能。',
     currentVersion: '1.7.0',
-    requiredVersion: '1.8.2'
+    requiredVersion: '1.9.2'
   },
   '舊版 Host 不認得 Apple 備忘錄 action 時，必須回傳可採取行動的升級提示'
 );
@@ -1817,9 +2052,9 @@ assert.deepEqual(
   {
     ok: false,
     code: 'NATIVE_HOST_UPDATE_REQUIRED',
-    error: '本機 Helper 版本過舊（目前 1.7.0，需要 1.8.2 以上）。請重新執行最新版 Helper 安裝程式，再重新載入擴充功能。',
+    error: '本機 Helper 版本過舊（目前 1.7.0，需要 1.9.2 以上）。請重新執行最新版 Helper 安裝程式，再重新載入擴充功能。',
     currentVersion: '1.7.0',
-    requiredVersion: '1.8.2'
+    requiredVersion: '1.9.2'
   },
   'Popup 連線檢查必須在使用 Apple 備忘錄前主動辨識舊版 Host'
 );
@@ -1827,46 +2062,166 @@ background.stored.storageProvider = 'markdown-folder';
 background.stored.mediaPath = '附件/Social Post to Obsidian';
 await background.context.startNativeMaintenance();
 assert.ok(background.alarmCreates.some(item => item.name === 'sp2o-vault-maintenance'));
-assert.deepEqual(
-  JSON.parse(JSON.stringify(
-    background.alarmCreates.find(item => item.name === 'sp2o-weekly-archive')
-  )),
-  {
-    name: 'sp2o-weekly-archive',
-    options: { delayInMinutes: 10080, periodInMinutes: 10080 }
-  }
+assert.equal(
+  background.alarmCreates.some(item => item.name === 'sp2o-obsidian-archive'),
+  true,
+  '本機 Markdown 資料夾也必須每日整理社群貼文'
 );
 assert.deepEqual(JSON.parse(JSON.stringify(background.nativeMessages.at(-1))), {
   action: 'cleanEmptyMediaFolders',
   path: '附件/Social Post to Obsidian'
 });
+{
+  const markdownArchiveBackground = loadBackground({ storageProvider: 'markdown-folder' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(
+    markdownArchiveBackground.alarmCreates.some(item => item.name === 'sp2o-obsidian-archive'),
+    '本機 Markdown 啟動時必須建立每日封存 alarm'
+  );
+  markdownArchiveBackground.stored.recentSaves = [{
+    filename: 'old.md',
+    path: '個人創作/社群推文/old.md',
+    platform: 'x'
+  }];
+  markdownArchiveBackground.setNativeArchiveMoves([{
+    from: '個人創作/社群推文/old.md',
+    to: '個人創作/社群推文/Archive/發文/old.md'
+  }]);
+  assert.equal(await markdownArchiveBackground.context.archiveOldSocialPosts({
+    storageProvider: 'markdown-folder',
+    basePath: '個人創作/社群推文'
+  }, '2026-07-20T00:00:00+08:00'), 1);
+  assert.equal(
+    markdownArchiveBackground.stored.recentSaves[0].ref.path,
+    '個人創作/社群推文/Archive/發文/old.md',
+    'Markdown 封存後必須同步更新最近儲存 ref'
+  );
+}
 
-background.stored.recentSaves = [{
+const restArchiveBackground = loadBackground({ storageProvider: 'obsidian-rest' });
+await new Promise(resolve => setImmediate(resolve));
+assert.deepEqual(
+  JSON.parse(JSON.stringify(
+    restArchiveBackground.alarmCreates.find(item => item.name === 'sp2o-obsidian-archive')
+  )),
+  {
+    name: 'sp2o-obsidian-archive',
+    options: { delayInMinutes: 1, periodInMinutes: 1440 }
+  }
+);
+const staleArchiveAlarmBackground = loadBackground({ storageProvider: 'obsidian-rest' }, {
+  initialAlarms: [{
+    name: 'sp2o-weekly-archive',
+    delayInMinutes: 10080,
+    periodInMinutes: 10080
+  }]
+});
+await new Promise(resolve => setImmediate(resolve));
+assert.ok(
+  staleArchiveAlarmBackground.alarmCreates.some(item => (
+    item.name === 'sp2o-obsidian-archive'
+      && item.options.delayInMinutes === 1
+      && item.options.periodInMinutes === 1440
+  )),
+  '升級前留下的七日 alarm 必須改成啟動後一分鐘補跑、之後每日執行'
+);
+assert.ok(
+  staleArchiveAlarmBackground.alarmClears.includes('sp2o-weekly-archive'),
+  '2.15.7 留下的錯誤 provider alarm 必須移除'
+);
+
+// popup 按「儲存設定」會送 RETRY_QUEUE；具封存能力的目的地不得被順手關掉每日封存。
+{
+  const savedSettingsBackground = loadBackground({ storageProvider: 'markdown-folder' });
+  await new Promise(resolve => setImmediate(resolve));
+  savedSettingsBackground.alarmClears.length = 0;
+  savedSettingsBackground.fireMessage({ type: 'RETRY_QUEUE' });
+  await savedSettingsBackground.waitForTasks();
+  assert.equal(
+    savedSettingsBackground.alarmClears.includes('sp2o-obsidian-archive'),
+    false,
+    '本機 Markdown 資料夾儲存設定後不得清掉每日封存 alarm'
+  );
+  assert.ok(
+    savedSettingsBackground.alarmCreates.some(item => item.name === 'sp2o-obsidian-archive'),
+    '本機 Markdown 資料夾儲存設定後必須維持每日封存 alarm'
+  );
+}
+{
+  const notesSettingsBackground = loadBackground({ storageProvider: 'apple-notes' });
+  await new Promise(resolve => setImmediate(resolve));
+  notesSettingsBackground.fireMessage({ type: 'RETRY_QUEUE' });
+  await notesSettingsBackground.waitForTasks();
+  assert.ok(
+    notesSettingsBackground.alarmClears.includes('sp2o-obsidian-archive'),
+    'Apple 備忘錄不支援封存，儲存設定後必須關掉每日封存 alarm'
+  );
+}
+restArchiveBackground.stored.recentSaves = [{
   filename: 'old.md',
   path: '個人創作/社群推文/old.md',
   platform: 'x'
 }];
-background.stored.recentThreadContexts = [{
+restArchiveBackground.stored.recentThreadContexts = [{
   filename: 'old.md',
   path: '個人創作/社群推文/old.md',
   platform: 'x'
 }];
-background.setNativeArchiveMoves([{
-  from: '個人創作/社群推文/old.md',
-  to: '個人創作/社群推文/Archive/發文/old.md'
-}]);
+restArchiveBackground.setRestFile('個人創作/社群推文/old.md', [
+  '---',
+  'created: "2026-07-18 11:00"',
+  'source: "x"',
+  'source_url: "https://x.com/me/status/2001"',
+  'status: "published"',
+  'post_type: "quote"',
+  '---',
+  '',
+  '![圖片](<../../附件/Social Post to Obsidian/old/image-01.jpg>)'
+].join('\n'));
+assert.equal(await restArchiveBackground.context.archiveOldSocialPosts({
+  storageProvider: 'obsidian-rest',
+  apiKey: 'test-key',
+  port: 27123,
+  basePath: '個人創作/社群推文'
+}, '2026-07-20T00:00:00+08:00'), 1);
+assert.equal(restArchiveBackground.hasRestFile('個人創作/社群推文/old.md'), false);
+assert.match(
+  restArchiveBackground.getRestFile('個人創作/社群推文/Archive/引用/old.md'),
+  /<\.\.\/\.\.\/\.\.\/\.\.\/附件\/Social Post to Obsidian\/old\/image-01\.jpg>/
+);
+assert.equal(
+  restArchiveBackground.stored.recentSaves[0].ref.path,
+  '個人創作/社群推文/Archive/引用/old.md'
+);
+assert.equal(
+  restArchiveBackground.stored.recentThreadContexts[0].ref.path,
+  '個人創作/社群推文/Archive/引用/old.md'
+);
+assert.equal(await restArchiveBackground.context.archiveOldSocialPosts({
+  storageProvider: 'obsidian-rest',
+  apiKey: 'test-key',
+  port: 27123,
+  basePath: '個人創作/社群推文'
+}, '2026-07-20T00:00:00+08:00'), 0, 'Obsidian 封存重跑必須冪等');
+
+restArchiveBackground.setRestFile('個人創作/社群推文/scheduled.md', [
+  '---',
+  'created: "2026-07-18 12:00"',
+  'source: "threads"',
+  'status: "published"',
+  '---'
+].join('\n'));
+restArchiveBackground.fireAlarm('sp2o-obsidian-archive');
+await restArchiveBackground.waitForTasks();
+assert.equal(
+  restArchiveBackground.hasRestFile('個人創作/社群推文/Archive/發文/scheduled.md'),
+  true,
+  'Obsidian 封存 alarm 到期時必須透過 Local REST API 整理貼文'
+);
 assert.equal(await background.context.archiveOldSocialPosts({
   storageProvider: 'markdown-folder',
   basePath: '個人創作/社群推文'
-}), 1);
-assert.equal(
-  background.stored.recentSaves[0].ref.path,
-  '個人創作/社群推文/Archive/發文/old.md'
-);
-assert.equal(
-  background.stored.recentThreadContexts[0].ref.path,
-  '個人創作/社群推文/Archive/發文/old.md'
-);
+}), 0);
 
 // Native Host 寫入比輸入速度慢時，只保留最新快照；舊草稿不得在平台佇列內越積越多。
 const coalescedDraftBackground = loadBackground();
@@ -3895,6 +4250,10 @@ assert.deepEqual(
 
 const existsBackground = loadBackground();
 existsBackground.stored.storageProvider = 'markdown-folder';
+existsBackground.setNativeFile(
+  '個人創作/社群推文/發文/2026-07-18_1100_手機發的第一則.md',
+  existsBackground.context.generateMarkdown(backfillNote, [])
+);
 assert.deepEqual(
   JSON.parse(JSON.stringify(await existsBackground.context.findMissingPosts([backfillNote]))),
   { ok: true, missing: [] }
@@ -4093,5 +4452,333 @@ assert.deepEqual(
 );
 assert.deepEqual(writingBackground.removedTabs, [writingScanTabId]);
 assert.equal('xBackfillScanJob' in writingBackground.stored, false);
+
+// ===== 跨平台相同文章去重 =====
+
+const crossPlatformBackground = loadBackground();
+crossPlatformBackground.stored.storageProvider = 'markdown-folder';
+const crossPlatformX = {
+  content: '同一篇文章\n\n保留標點。',
+  platform: 'x',
+  url: 'https://x.com/author/status/9001',
+  timestamp: '2026-08-20T10:00:00+08:00',
+  media: []
+};
+const crossPlatformThreads = {
+  content: '  同一篇文章   保留標點。  ',
+  platform: 'threads',
+  url: 'https://www.threads.com/@author/post/CROSS9001',
+  timestamp: '2026-08-25T14:30:00+08:00',
+  media: []
+};
+await crossPlatformBackground.context.handleSavePost(crossPlatformX, null);
+await crossPlatformBackground.context.handleSavePost(crossPlatformThreads, null);
+const crossPlatformWrites = crossPlatformBackground.nativeMessages
+  .filter(message => message.action === 'write' && message.encoding !== 'base64');
+assert.equal(crossPlatformWrites.length, 2, '第二平台應更新 canonical，而不是建立第二篇');
+assert.equal(crossPlatformWrites[1].path, crossPlatformWrites[0].path);
+assert.equal(crossPlatformBackground.nativeFiles.size, 1);
+const crossPlatformYaml = parseYamlFrontmatter(crossPlatformWrites[1].data);
+assert.deepEqual(crossPlatformYaml.platforms, ['Twitter/X', 'Threads']);
+assert.deepEqual(
+  crossPlatformYaml.sources.map(source => source.platform),
+  ['x', 'threads']
+);
+assert.match(crossPlatformYaml.content_fingerprint, /^sha256:[a-f0-9]{64}$/);
+
+const splitThreadFingerprint = await crossPlatformBackground.context.contentFingerprint({
+  ...crossPlatformX,
+  content: 'unused',
+  thread: ['同一篇文章', '保留標點。']
+});
+assert.equal(
+  splitThreadFingerprint,
+  await crossPlatformBackground.context.contentFingerprint(crossPlatformThreads),
+  '串文接成全文後應與單篇使用相同 fingerprint'
+);
+assert.equal(await crossPlatformBackground.context.contentFingerprint({
+  ...crossPlatformX,
+  replyTo: 'https://x.com/other/status/1'
+}), '', '回覆不可進入跨平台去重');
+assert.equal(await crossPlatformBackground.context.contentFingerprint({
+  ...crossPlatformX,
+  quoted: { content: '引用內容' }
+}), '', '引用貼文不可進入跨平台去重');
+
+const samePlatformBackground = loadBackground();
+samePlatformBackground.stored.storageProvider = 'markdown-folder';
+await samePlatformBackground.context.handleSavePost(crossPlatformX, null);
+await samePlatformBackground.context.handleSavePost({
+  ...crossPlatformX,
+  url: 'https://x.com/author/status/9002',
+  timestamp: '2026-08-20T10:00:30+08:00'
+}, null);
+const samePlatformWrites = samePlatformBackground.nativeMessages
+  .filter(message => message.action === 'write' && message.encoding !== 'base64');
+assert.notEqual(samePlatformWrites[1].path, samePlatformWrites[0].path, '同平台重發必須另存且不可覆寫同名檔');
+assert.equal(samePlatformBackground.nativeFiles.size, 2);
+
+// 既有資料只在掃描階段建立預覽；使用者確認前不得寫入或刪除。
+const duplicateScanBackground = loadBackground();
+duplicateScanBackground.stored.storageProvider = 'markdown-folder';
+const oldXPath = '個人創作/社群推文/2026-07-01_0900_既有文章.md';
+const oldThreadsPath = '個人創作/社群推文/2026-07-02_0900_既有文章.md';
+duplicateScanBackground.setNativeFile(oldXPath, duplicateScanBackground.context.generateMarkdown({
+  ...crossPlatformX,
+  content: '既有文章',
+  timestamp: '2026-07-01T09:00:00+08:00'
+}, []));
+duplicateScanBackground.setNativeFile(oldThreadsPath, duplicateScanBackground.context.generateMarkdown({
+  ...crossPlatformThreads,
+  content: '既有文章',
+  timestamp: '2026-07-02T09:00:00+08:00'
+}, []));
+duplicateScanBackground.setNativeListing(
+  [oldXPath.replace('個人創作/社群推文/', ''), oldThreadsPath.replace('個人創作/社群推文/', '')],
+  [
+    { name: oldXPath.replace('個人創作/社群推文/', ''), sourceUrl: crossPlatformX.url },
+    { name: oldThreadsPath.replace('個人創作/社群推文/', ''), sourceUrl: crossPlatformThreads.url }
+  ]
+);
+const messagesBeforeScan = duplicateScanBackground.nativeMessages.length;
+const scanPreview = await duplicateScanBackground.context.scanDuplicatePosts();
+assert.equal(scanPreview.ok, true);
+assert.equal(scanPreview.groups.length, 1);
+assert.equal(scanPreview.groups[0].canonical.ref.path, oldXPath);
+assert.equal(
+  duplicateScanBackground.nativeMessages.slice(messagesBeforeScan).some(message => ['write', 'remove'].includes(message.action)),
+  false,
+  '掃描預覽不可修改目的地'
+);
+const mergePreview = await duplicateScanBackground.context.mergeDuplicatePosts(
+  scanPreview.scanId,
+  [scanPreview.groups[0].id]
+);
+assert.equal(mergePreview.ok, true);
+assert.equal(mergePreview.merged, 1);
+assert.equal(duplicateScanBackground.nativeFiles.has(oldXPath), true);
+assert.equal(duplicateScanBackground.nativeFiles.has(oldThreadsPath), false);
+assert.deepEqual(parseYamlFrontmatter(duplicateScanBackground.nativeFiles.get(oldXPath)).platforms, ['Twitter/X', 'Threads']);
+
+// Local REST 與 Apple 備忘錄也要走同一套自動去重，不能只修 Markdown Helper。
+const restCrossPlatformBackground = loadBackground();
+restCrossPlatformBackground.stored.storageProvider = 'obsidian-rest';
+await restCrossPlatformBackground.context.handleSavePost(crossPlatformX, null);
+await restCrossPlatformBackground.context.handleSavePost(crossPlatformThreads, null);
+const restCrossMarkdownPaths = restCrossPlatformBackground.getRestPaths().filter(path => path.endsWith('.md'));
+assert.equal(restCrossMarkdownPaths.length, 1);
+assert.deepEqual(
+  parseYamlFrontmatter(restCrossPlatformBackground.getRestFile(restCrossMarkdownPaths[0])).platforms,
+  ['Twitter/X', 'Threads']
+);
+
+const notesCrossPlatformBackground = loadBackground({
+  storageProvider: 'apple-notes',
+  appleNotesSettings: {
+    accountId: 'account-local',
+    accountName: 'On My Mac',
+    folderId: 'folder-test',
+    folderName: 'SP2O Tests'
+  }
+});
+await notesCrossPlatformBackground.context.handleSavePost(crossPlatformX, null);
+await notesCrossPlatformBackground.context.handleSavePost(crossPlatformThreads, null);
+assert.equal(notesCrossPlatformBackground.getNativeNotes().length, 1);
+const mergedNotesHtml = notesCrossPlatformBackground.getNativeNotes()[0].html;
+assert.match(mergedNotesHtml, /平台：<\/strong>Twitter\/X、Threads/);
+assert.match(mergedNotesHtml, /status\/9001/);
+assert.match(mergedNotesHtml, /post\/CROSS9001/);
+assert.match(mergedNotesHtml, /內容指紋：<\/strong>sha256:[a-f0-9]{64}/);
+
+const existingNotesScanBackground = loadBackground({
+  storageProvider: 'apple-notes',
+  markdownFolderSettings: { basePath: '個人創作/社群推文', mediaPath: '附件', folderName: '' },
+  obsidianRestSettings: { apiKey: '', port: 27123, basePath: '個人創作/社群推文', mediaPath: '附件' },
+  appleNotesSettings: {
+    accountId: 'account-local',
+    accountName: 'On My Mac',
+    folderId: 'folder-test',
+    folderName: 'SP2O Tests'
+  }
+});
+existingNotesScanBackground.setNativeNote({
+  noteId: 'note-existing-x',
+  title: 'Apple 既有文章',
+  externalKey: 'x:9001',
+  createdAt: '2026-04-01T09:00:00+08:00',
+  html: existingNotesScanBackground.context.renderNotesHtml({
+    ...crossPlatformX,
+    content: 'Apple 既有文章',
+    timestamp: '2026-04-01T09:00:00+08:00'
+  }, 'Apple 既有文章', 'x:9001'),
+  attachments: []
+});
+existingNotesScanBackground.setNativeNote({
+  noteId: 'note-existing-threads',
+  title: 'Apple 既有文章',
+  externalKey: 'threads:CROSS9001',
+  createdAt: '2026-04-02T09:00:00+08:00',
+  html: existingNotesScanBackground.context.renderNotesHtml({
+    ...crossPlatformThreads,
+    content: 'Apple 既有文章',
+    timestamp: '2026-04-02T09:00:00+08:00'
+  }, 'Apple 既有文章', 'threads:CROSS9001'),
+  attachments: []
+});
+const existingNotesScan = await existingNotesScanBackground.context.scanDuplicatePosts();
+const existingNotesGroup = existingNotesScan.groups.find(group => group.provider === 'apple-notes');
+assert.ok(existingNotesGroup);
+assert.equal((await existingNotesScanBackground.context.mergeDuplicatePosts(
+  existingNotesScan.scanId,
+  [existingNotesGroup.id]
+)).merged, 1);
+assert.equal(existingNotesScanBackground.getNativeNotes().length, 1);
+
+const existingRestScanBackground = loadBackground({
+  storageProvider: 'obsidian-rest',
+  markdownFolderSettings: { basePath: '個人創作/社群推文', mediaPath: '附件', folderName: '' },
+  appleNotesSettings: {},
+  obsidianRestSettings: {
+    apiKey: 'test-key',
+    port: 27123,
+    basePath: '個人創作/社群推文',
+    mediaPath: '附件/Social Post to Obsidian'
+  }
+});
+existingRestScanBackground.setRestFile(oldXPath, existingRestScanBackground.context.generateMarkdown({
+  ...crossPlatformX,
+  content: 'REST 既有文章',
+  timestamp: '2026-03-01T09:00:00+08:00'
+}, []));
+existingRestScanBackground.setRestFile(oldThreadsPath, existingRestScanBackground.context.generateMarkdown({
+  ...crossPlatformThreads,
+  content: 'REST 既有文章',
+  timestamp: '2026-03-02T09:00:00+08:00'
+}, []));
+const existingRestScan = await existingRestScanBackground.context.scanDuplicatePosts();
+const existingRestGroup = existingRestScan.groups.find(group => group.provider === 'obsidian-rest');
+assert.ok(existingRestGroup);
+assert.equal((await existingRestScanBackground.context.mergeDuplicatePosts(
+  existingRestScan.scanId,
+  [existingRestGroup.id]
+)).merged, 1);
+assert.equal(existingRestScanBackground.hasRestFile(oldXPath), true);
+assert.equal(existingRestScanBackground.hasRestFile(oldThreadsPath), false);
+
+// 重複筆記含手動區塊時要移到 canonical 的「合併保留內容」。
+const manualMergeBackground = loadBackground();
+manualMergeBackground.stored.storageProvider = 'markdown-folder';
+const manualXPath = '個人創作/社群推文/2026-06-01_0900_手動內容.md';
+const manualThreadsPath = '個人創作/社群推文/2026-06-02_0900_手動內容.md';
+manualMergeBackground.setNativeFile(manualXPath, manualMergeBackground.context.generateMarkdown({
+  ...crossPlatformX,
+  content: '要保留手動補充的文章',
+  timestamp: '2026-06-01T09:00:00+08:00'
+}, []));
+manualMergeBackground.setNativeFile(
+  manualThreadsPath,
+  `${manualMergeBackground.context.generateMarkdown({
+    ...crossPlatformThreads,
+    content: '要保留手動補充的文章',
+    timestamp: '2026-06-02T09:00:00+08:00'
+  }, []).trim()}\n\n---\n\n## 我手動補的資料\n\n這段不能消失。\n`
+);
+manualMergeBackground.setNativeListing(
+  [manualXPath.split('/').at(-1), manualThreadsPath.split('/').at(-1)],
+  [
+    { name: manualXPath.split('/').at(-1), sourceUrl: crossPlatformX.url },
+    { name: manualThreadsPath.split('/').at(-1), sourceUrl: crossPlatformThreads.url }
+  ]
+);
+const manualScan = await manualMergeBackground.context.scanDuplicatePosts();
+const manualGroup = manualScan.groups.find(group => group.canonical.ref.path === manualXPath);
+assert.ok(manualGroup);
+const manualMerged = await manualMergeBackground.context.mergeDuplicatePosts(manualScan.scanId, [manualGroup.id]);
+assert.equal(manualMerged.merged, 1);
+assert.match(manualMergeBackground.nativeFiles.get(manualXPath), /## 合併保留內容[\s\S]*## 我手動補的資料[\s\S]*這段不能消失。/);
+
+// 圖片以位元 SHA-256 判斷：相同檔只留一份，不同位元即使名稱相同仍保留。
+const imageMergeBackground = loadBackground();
+imageMergeBackground.stored.storageProvider = 'markdown-folder';
+const imageXPath = '個人創作/社群推文/2026-05-01_0900_圖片文章.md';
+const imageThreadsPath = '個人創作/社群推文/2026-05-02_0900_圖片文章.md';
+const xAsset = '附件/Social Post to Obsidian/2026-05-01_0900_圖片文章/image-01.jpg';
+const threadsAsset1 = '附件/Social Post to Obsidian/2026-05-02_0900_圖片文章/image-01.jpg';
+const threadsAsset2 = '附件/Social Post to Obsidian/2026-05-02_0900_圖片文章/image-02.jpg';
+imageMergeBackground.setNativeFile(xAsset, Buffer.from([1, 2, 3]));
+imageMergeBackground.setNativeFile(threadsAsset1, Buffer.from([1, 2, 3]));
+imageMergeBackground.setNativeFile(threadsAsset2, Buffer.from([9, 8, 7]));
+imageMergeBackground.setNativeFile(imageXPath, imageMergeBackground.context.generateMarkdown({
+  ...crossPlatformX,
+  content: '圖片去重文章',
+  timestamp: '2026-05-01T09:00:00+08:00'
+}, [{ path: '../../附件/Social Post to Obsidian/2026-05-01_0900_圖片文章/image-01.jpg', alt: 'X 圖片' }]));
+imageMergeBackground.setNativeFile(imageThreadsPath, imageMergeBackground.context.generateMarkdown({
+  ...crossPlatformThreads,
+  content: '圖片去重文章',
+  timestamp: '2026-05-02T09:00:00+08:00'
+}, [
+  { path: '../../附件/Social Post to Obsidian/2026-05-02_0900_圖片文章/image-01.jpg', alt: '相同圖片' },
+  { path: '../../附件/Social Post to Obsidian/2026-05-02_0900_圖片文章/image-02.jpg', alt: '不同圖片' }
+]));
+imageMergeBackground.setNativeListing(
+  [imageXPath.split('/').at(-1), imageThreadsPath.split('/').at(-1)],
+  [
+    { name: imageXPath.split('/').at(-1), sourceUrl: crossPlatformX.url },
+    { name: imageThreadsPath.split('/').at(-1), sourceUrl: crossPlatformThreads.url }
+  ]
+);
+const imageScan = await imageMergeBackground.context.scanDuplicatePosts();
+const imageGroup = imageScan.groups.find(group => group.canonical.ref.path === imageXPath);
+assert.ok(imageGroup);
+assert.equal((await imageMergeBackground.context.mergeDuplicatePosts(imageScan.scanId, [imageGroup.id])).merged, 1);
+const imageMergedMarkdown = imageMergeBackground.nativeFiles.get(imageXPath);
+assert.equal((imageMergedMarkdown.match(/^!\[/gm) || []).length, 2);
+assert.equal(imageMergeBackground.nativeFiles.has(xAsset), true);
+assert.equal(imageMergeBackground.nativeFiles.has(threadsAsset1), false);
+assert.equal(imageMergeBackground.nativeFiles.has(threadsAsset2), false);
+
+// 掃描後內容被修改時必須整組跳過，不得套用過期預覽後刪除。
+const staleScanBackground = loadBackground();
+staleScanBackground.stored.storageProvider = 'markdown-folder';
+staleScanBackground.setNativeFile(oldXPath, duplicateScanBackground.context.generateMarkdown({
+  ...crossPlatformX,
+  content: '掃描後會變更',
+  timestamp: '2026-07-01T09:00:00+08:00'
+}, []));
+staleScanBackground.setNativeFile(oldThreadsPath, duplicateScanBackground.context.generateMarkdown({
+  ...crossPlatformThreads,
+  content: '掃描後會變更',
+  timestamp: '2026-07-02T09:00:00+08:00'
+}, []));
+staleScanBackground.setNativeListing(
+  [oldXPath.split('/').at(-1), oldThreadsPath.split('/').at(-1)],
+  [
+    { name: oldXPath.split('/').at(-1), sourceUrl: crossPlatformX.url },
+    { name: oldThreadsPath.split('/').at(-1), sourceUrl: crossPlatformThreads.url }
+  ]
+);
+const staleScan = await staleScanBackground.context.scanDuplicatePosts();
+staleScanBackground.setNativeFile(oldThreadsPath, `${staleScanBackground.nativeFiles.get(oldThreadsPath)}\n手動變更\n`);
+const staleMerge = await staleScanBackground.context.mergeDuplicatePosts(staleScan.scanId, [staleScan.groups[0].id]);
+assert.equal(staleMerge.merged, 0);
+assert.equal(staleMerge.skipped, 1);
+assert.equal(staleScanBackground.nativeFiles.has(oldThreadsPath), true);
+assert.equal(duplicateScanBackground.context.duplicateGroupsForRecords('markdown-folder', [{
+  ref: { provider: 'markdown-folder', path: 'canonical.md' },
+  fingerprint: 'sha256:retry',
+  createdAt: '2026-01-01T00:00:00Z',
+  platforms: ['x', 'threads'],
+  sources: [
+    { platform: 'x', externalKey: 'x:1' },
+    { platform: 'threads', externalKey: 'threads:1' }
+  ]
+}, {
+  ref: { provider: 'markdown-folder', path: 'duplicate.md' },
+  fingerprint: 'sha256:retry',
+  createdAt: '2026-01-02T00:00:00Z',
+  platforms: ['threads'],
+  sources: [{ platform: 'threads', externalKey: 'threads:1' }]
+}]).length, 1, 'canonical 已更新但重複檔刪除失敗時，下次掃描仍須能續刪');
 
 console.log('Media parser and Vault bundle tests passed.');

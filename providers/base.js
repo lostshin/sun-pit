@@ -1,7 +1,7 @@
 (function initializeStorageProviders(root) {
   'use strict';
 
-  const SCHEMA_VERSION = 2;
+  const SCHEMA_VERSION = 3;
   const PROVIDERS = Object.freeze({
     MARKDOWN_FOLDER: 'markdown-folder',
     OBSIDIAN_REST: 'obsidian-rest',
@@ -28,6 +28,8 @@
    * @property {Array<{url:string, alt?:string}>=} media
    * @property {string} timestamp
    * @property {string=} postType
+   * @property {string=} contentFingerprint
+   * @property {Array<{platform:'x'|'threads',url:string,publishedAt:string,externalKey:string}>=} sources
    */
 
   function register(id, factory) {
@@ -138,7 +140,8 @@
         accountName: '',
         folderId: '',
         folderName: ''
-      }
+      },
+      contentDedupeIndex: snapshot.contentDedupeIndex || {}
     };
 
     for (const key of ['draftStatus_x', 'draftStatus_threads']) {

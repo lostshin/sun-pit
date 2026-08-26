@@ -3,18 +3,25 @@
 require 'base64'
 require 'cgi'
 require 'date'
+require 'digest'
 require 'fileutils'
 require 'json'
 require 'open3'
 require 'pathname'
 require 'securerandom'
+require 'set'
 require 'tempfile'
 require 'time'
 require 'tmpdir'
 require 'uri'
 require 'yaml'
 
-HOST_VERSION = '1.8.2'
+# Chrome 啟動 Native Messaging host 時不帶 LANG，Ruby 的 external 與 filesystem encoding
+# 會退成 US-ASCII；中文檔名讀出來即非 UTF-8，與 UTF-8 正文串接會炸 incompatible
+# character encodings，整批封存與掃描因此沉默失敗。必須在任何檔案操作前固定成 UTF-8。
+Encoding.default_external = Encoding::UTF_8
+
+HOST_VERSION = '1.9.2'
 MAX_MESSAGE_BYTES = 64 * 1024 * 1024
 APP_DIRECTORY = ENV.fetch(
   'SP2O_CONFIG_DIR',
@@ -75,10 +82,9 @@ end
 
 def subprocess_utf8(value, invalid_message, scrub: false)
   text = value.to_s.dup.force_encoding(Encoding::UTF_8)
-  return text if text.valid_encoding?
-  return text.scrub if scrub
-
-  raise invalid_message
+  text = text.scrub unless text.valid_encoding?
+  # `scrub` marks caller-owned subprocess diagnostics; always make them safe to embed.
+  scrub ? text.scrub : text
 end
 
 def validate_folder(path)
@@ -426,6 +432,202 @@ def notes_read(account_id, note_id, external_key)
   { 'ok' => true, 'html' => html, 'externalKey' => external_key }
 end
 
+def notes_list_posts(account_id, folder_id, cursor, limit)
+  offset = [cursor.to_i, 0].max
+  page_size = [[limit.to_i, 1].max, 20].min
+  script = <<~APPLESCRIPT
+    on run argv
+      set accountId to item 1 of argv
+      set folderId to item 2 of argv
+      set startOffset to (item 3 of argv) as integer
+      set pageSize to (item 4 of argv) as integer
+      set recordSeparator to ASCII character 30
+      set unitSeparator to ASCII character 31
+      set outputText to ""
+      tell application "Notes"
+        set targetAccount to first account whose id is accountId
+        set targetFolder to first folder of targetAccount whose id is folderId
+        set folderNotes to notes of targetFolder
+        set noteCount to count of folderNotes
+        set firstIndex to startOffset + 1
+        set lastIndex to firstIndex + pageSize - 1
+        if lastIndex > noteCount then set lastIndex to noteCount
+        if firstIndex is less than or equal to noteCount then
+          repeat with noteIndex from firstIndex to lastIndex
+            set targetNote to item noteIndex of folderNotes
+            try
+              set createdText to my isoText(creation date of targetNote)
+            on error
+              set createdText to ""
+            end try
+            try
+              set modifiedText to my isoText(modification date of targetNote)
+            on error
+              set modifiedText to ""
+            end try
+            set outputText to outputText & (id of targetNote) & unitSeparator & (name of targetNote) & unitSeparator & createdText & unitSeparator & modifiedText & unitSeparator & (body of targetNote) & recordSeparator
+          end repeat
+        end if
+        return (noteCount as text) & recordSeparator & outputText
+      end tell
+    end run
+
+    on isoText(dateValue)
+      set paddedMonth to text -2 thru -1 of ("0" & ((month of dateValue) as integer))
+      set paddedDay to text -2 thru -1 of ("0" & (day of dateValue))
+      set paddedHour to text -2 thru -1 of ("0" & (hours of dateValue))
+      set paddedMinute to text -2 thru -1 of ("0" & (minutes of dateValue))
+      set paddedSecond to text -2 thru -1 of ("0" & (seconds of dateValue))
+      return "" & (year of dateValue) & "-" & paddedMonth & "-" & paddedDay & "T" & paddedHour & ":" & paddedMinute & ":" & paddedSecond
+    end isoText
+  APPLESCRIPT
+  output = run_notes_script(script, account_id, folder_id, offset.to_s, page_size.to_s)
+  total_text, *rows = output.split("\x1E")
+  total = total_text.to_i
+  entries = rows.map do |row|
+    note_id, title, created_at, modified_at, html = row.split("\x1F", 5)
+    next if note_id.to_s.empty?
+
+    {
+      'noteId' => note_id,
+      'title' => title.to_s,
+      'createdAt' => created_at.to_s,
+      'modifiedAt' => modified_at.to_s,
+      'html' => html.to_s
+    }
+  end.compact
+  next_cursor = offset + entries.length
+  {
+    'ok' => true,
+    'entries' => entries,
+    'nextCursor' => next_cursor < total ? next_cursor : nil
+  }
+rescue StandardError => error
+  raise HostActionError.new('Apple 備忘錄資料夾不存在', 'NOTES_LOCATION_MISSING') if error.message.match?(/Can.t get|Invalid index/i)
+
+  raise
+end
+
+def notes_export_attachments(account_id, note_id, external_key)
+  notes_read_verified(account_id, note_id, external_key)
+  Dir.mktmpdir('sp2o-note-attachments-') do |directory|
+    script = <<~APPLESCRIPT
+      on run argv
+        set accountId to item 1 of argv
+        set noteId to item 2 of argv
+        set outputDirectory to item 3 of argv
+        set recordSeparator to ASCII character 30
+        set unitSeparator to ASCII character 31
+        set outputText to ""
+        tell application "Notes"
+          set targetAccount to first account whose id is accountId
+          set targetNote to first note of targetAccount whose id is noteId
+          set attachmentIndex to 0
+          repeat with targetAttachment in attachments of targetNote
+            set attachmentIndex to attachmentIndex + 1
+            try
+              set attachmentName to name of targetAttachment
+            on error
+              set attachmentName to "attachment-" & attachmentIndex
+            end try
+            set outputPath to outputDirectory & "/attachment-" & attachmentIndex
+            save targetAttachment in (POSIX file outputPath)
+            set outputText to outputText & attachmentName & unitSeparator & outputPath & recordSeparator
+          end repeat
+        end tell
+        return outputText
+      end run
+    APPLESCRIPT
+    output = run_notes_script(script, account_id, note_id, directory)
+    attachments = output.split("\x1E").map do |row|
+      name, path = row.split("\x1F", 2)
+      next unless path && File.file?(path)
+
+      {
+        'name' => name.to_s,
+        'path' => path,
+        'hash' => Digest::SHA256.file(path).hexdigest
+      }
+    end.compact
+    return yield attachments
+  end
+end
+
+def notes_attachment_hashes(message)
+  notes_export_attachments(
+    message.fetch('accountId'), message.fetch('noteId'), message.fetch('externalKey')
+  ) do |attachments|
+    {
+      'ok' => true,
+      'hashes' => attachments.map { |attachment| attachment['hash'] },
+      'entries' => attachments.map { |attachment| attachment.slice('name', 'hash') }
+    }
+  end
+end
+
+def notes_merge_duplicates(message)
+  account_id = message.fetch('accountId')
+  folder_id = message.fetch('folderId')
+  canonical = message.fetch('canonical')
+  duplicates = Array(message['duplicates'])
+  all_notes = [canonical, *duplicates]
+  verified_html = all_notes.to_h do |note|
+    html, = notes_read_verified(account_id, note.fetch('noteId'), note.fetch('externalKey'))
+    revision = "sha256:#{Digest::SHA256.hexdigest(html.encode('UTF-8'))}"
+    raise HostActionError.new('Apple 備忘錄在掃描後已變更', 'NOTES_REVISION_MISMATCH') unless revision == note.fetch('revision')
+
+    [note.fetch('noteId'), html]
+  end
+
+  exports = {}
+  export_next = lambda do |index|
+    note = all_notes.fetch(index)
+    notes_export_attachments(account_id, note.fetch('noteId'), note.fetch('externalKey')) do |attachments|
+      exports[note.fetch('noteId')] = attachments.map do |attachment|
+        attachment.merge('data' => File.binread(attachment.fetch('path')))
+      end
+      index + 1 < all_notes.length ? export_next.call(index + 1) : nil
+    end
+  end
+  export_next.call(0) unless all_notes.empty?
+
+  canonical_attachments = exports.fetch(canonical.fetch('noteId'), [])
+  seen_hashes = canonical_attachments.map { |attachment| attachment['hash'] }.to_set
+  next_number = canonical_attachments.length
+  unique = duplicates.flat_map { |note| exports.fetch(note.fetch('noteId'), []) }.map do |attachment|
+    next if seen_hashes.include?(attachment['hash'])
+
+    seen_hashes << attachment['hash']
+    next_number += 1
+    extension = File.extname(attachment['name']).downcase
+    extension = '.bin' unless extension.match?(/\A\.[a-z0-9]+\z/i)
+    {
+      'name' => format('image-%02d%s', next_number, extension),
+      'data' => Base64.strict_encode64(attachment['data'])
+    }
+  end.compact
+
+  notes_upsert({
+    'accountId' => account_id,
+    'folderId' => folder_id,
+    'noteId' => canonical.fetch('noteId'),
+    'title' => canonical.fetch('title'),
+    'externalKey' => canonical.fetch('externalKey'),
+    'html' => canonical.fetch('html'),
+    'attachments' => unique
+  })
+  updated_html, = notes_read_verified(account_id, canonical.fetch('noteId'), canonical.fetch('externalKey'))
+  all_notes.each do |note|
+    unless notes_identity_marker(updated_html, note.fetch('externalKey'))
+      raise HostActionError.new('合併後的 Apple 備忘錄缺少來源識別', 'NOTES_IDENTITY_MISMATCH')
+    end
+  end
+  duplicates.each do |note|
+    notes_simple_action('delete', account_id, note.fetch('noteId'), note.fetch('externalKey'))
+  end
+  { 'ok' => true, 'noteId' => canonical.fetch('noteId'), 'merged' => duplicates.length, 'savedMedia' => unique.length }
+end
+
 def notes_attach(message)
   attachment = message.fetch('attachment')
   bytes = Base64.strict_decode64(attachment.fetch('data'))
@@ -612,7 +814,12 @@ def markdown_entries(directory, recursive, relative = '', depth = 0)
   return [] if depth > 8
 
   entries = []
-  Dir.each_child(directory) do |name|
+  Dir.each_child(directory) do |raw_name|
+    # macOS can expose byte strings for non-UTF-8 filenames; joining them into UTF-8 paths
+    # raises 'incompatible character encodings'. Skip only names we cannot safely represent.
+    name = raw_name.to_s.dup.force_encoding(Encoding::UTF_8)
+    next unless name.valid_encoding?
+
     path = File.join(directory, name)
     next if File.symlink?(path)
 
@@ -824,6 +1031,14 @@ def handle_message(message)
     notes_find(message.fetch('accountId'), message.fetch('folderId'), message.fetch('externalKey'))
   when 'notesRead'
     notes_read(message.fetch('accountId'), message.fetch('noteId'), message.fetch('externalKey'))
+  when 'notesListPosts'
+    notes_list_posts(
+      message.fetch('accountId'), message.fetch('folderId'), message['cursor'], message['limit']
+    )
+  when 'notesAttachmentHashes'
+    notes_attachment_hashes(message)
+  when 'notesMergeDuplicates'
+    notes_merge_duplicates(message)
   when 'notesUpsert'
     notes_upsert(message)
   when 'notesAttach'
@@ -873,6 +1088,12 @@ def handle_message(message)
     raise 'Storage file not found' if target.nil? || !File.file?(target)
 
     { 'ok' => true, 'data' => File.binread(target).force_encoding('UTF-8') }
+  when 'readBinary'
+    vault = configured_vault
+    target = resolve_target(vault, message['path'])
+    raise 'Storage file not found' if target.nil? || !File.file?(target)
+
+    { 'ok' => true, 'data' => Base64.strict_encode64(File.binread(target)) }
   when 'remove'
     vault = configured_vault
     target = resolve_target(vault, message['path'])

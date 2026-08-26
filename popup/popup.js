@@ -30,12 +30,17 @@ const clearDraftsBtn = document.getElementById('clearDraftsBtn');
 const recentList = document.getElementById('recentList');
 const previewPopover = document.getElementById('previewPopover');
 const previewText = document.getElementById('previewText');
+const duplicateScanBtn = document.getElementById('duplicateScanBtn');
+const duplicateMergeBtn = document.getElementById('duplicateMergeBtn');
+const duplicateStatus = document.getElementById('duplicateStatus');
+const duplicateResults = document.getElementById('duplicateResults');
 
 let actionStatusTimer;
 let activePreviewAnchor;
 let loadedSettings = {};
 let notesLocationsPromise;
 let connectionRequestId = 0;
+let duplicateScanId = '';
 const NOTES_LOCATIONS_CACHE_KEY = 'appleNotesLocationsCache';
 
 function readPort() {
@@ -536,10 +541,103 @@ async function renderRecent() {
     recentList.appendChild(buildListItem(
       item.filename,
       item.ref,
-      `${platformDisplayName(item.platform)} · ${providerLabel(item.ref?.provider)} · ${formatTime(item.savedAt)}`,
+      `${(item.platforms || [item.platform]).map(platformDisplayName).join(' ＋ ')} · ${providerLabel(item.ref?.provider)} · ${formatTime(item.savedAt)}`,
       item.preview,
       'recent'
     ));
+  }
+}
+
+function renderDuplicateResults(response) {
+  duplicateResults.textContent = '';
+  const providerResults = Array.isArray(response.providers) ? response.providers : [];
+  for (const provider of providerResults) {
+    const status = document.createElement('p');
+    status.className = provider.ok ? 'duplicate-provider-status' : 'duplicate-provider-status error';
+    status.textContent = provider.ok
+      ? `${providerLabel(provider.provider)} · 找到 ${provider.groups || 0} 組`
+      : `${providerLabel(provider.provider)} · ${provider.error || '掃描失敗'}`;
+    duplicateResults.appendChild(status);
+  }
+  for (const group of response.groups || []) {
+    const label = document.createElement('label');
+    label.className = `duplicate-group${group.blocked ? ' blocked' : ''}`;
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.value = group.id;
+    checkbox.checked = !group.blocked;
+    checkbox.disabled = !!group.blocked;
+    const copy = document.createElement('span');
+    const title = document.createElement('strong');
+    title.textContent = group.canonical?.title || '未命名貼文';
+    const detail = document.createElement('small');
+    detail.textContent = group.blocked
+      ? group.blockedReason || '需人工處理'
+      : `${(group.platforms || []).map(platformDisplayName).join(' ＋ ')} · 保留最早筆記，合併 ${group.duplicates?.length || 0} 篇`;
+    copy.append(title, detail);
+    label.append(checkbox, copy);
+    duplicateResults.appendChild(label);
+  }
+  duplicateScanId = response.scanId || '';
+  duplicateResults.hidden = false;
+  duplicateMergeBtn.hidden = !(response.groups || []).some(group => !group.blocked);
+}
+
+async function scanDuplicatePosts() {
+  duplicateScanBtn.disabled = true;
+  duplicateMergeBtn.hidden = true;
+  duplicateResults.hidden = true;
+  duplicateStatus.textContent = '正在掃描已設定的目的地…';
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'SCAN_DUPLICATE_POSTS' });
+    if (!response?.ok) throw new Error(response?.error || '掃描失敗');
+    renderDuplicateResults(response);
+    duplicateStatus.textContent = response.groups?.length
+      ? `找到 ${response.groups.length} 組跨平台重複文章`
+      : '沒有找到可安全合併的跨平台重複文章';
+  } catch (error) {
+    duplicateStatus.textContent = `掃描失敗 · ${error.message}`;
+  } finally {
+    duplicateScanBtn.disabled = false;
+  }
+}
+
+async function mergeDuplicatePosts() {
+  const groupIds = [...duplicateResults.querySelectorAll('input[type="checkbox"]:checked')]
+    .map(input => input.value);
+  if (!groupIds.length) return;
+  if (!window.confirm(`確定要合併 ${groupIds.length} 組重複文章？\n\n系統會先更新並讀回最早筆記，驗證成功後才刪除其餘重複筆記。`)) return;
+  duplicateMergeBtn.disabled = true;
+  duplicateScanBtn.disabled = true;
+  duplicateStatus.textContent = '正在重新驗證並合併…';
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'MERGE_DUPLICATE_POSTS',
+      scanId: duplicateScanId,
+      groupIds
+    });
+    if (!response?.ok) throw new Error(response?.error || '合併失敗');
+    duplicateStatus.textContent = `已合併 ${response.merged || 0} 組；略過 ${response.skipped || 0} 組`;
+    await scanDuplicatePosts();
+    await renderRecent();
+  } catch (error) {
+    duplicateStatus.textContent = `合併失敗 · ${error.message}`;
+  } finally {
+    duplicateMergeBtn.disabled = false;
+    duplicateScanBtn.disabled = false;
+  }
+}
+
+async function restoreDuplicateScan() {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'GET_DUPLICATE_SCAN_SESSION' });
+    if (!response?.ok || !response.scanId) return;
+    renderDuplicateResults(response);
+    duplicateStatus.textContent = response.groups?.length
+      ? `上次掃描找到 ${response.groups.length} 組；合併前仍會重新驗證`
+      : '上次掃描沒有找到可安全合併的文章';
+  } catch {
+    // 掃描結果只是維護工具，不影響主要存檔功能。
   }
 }
 
@@ -580,6 +678,8 @@ toggleApiKey.addEventListener('click', toggleApiKeyVisibility);
 chooseFolderBtn.addEventListener('click', chooseFolder);
 refreshNotesBtn.addEventListener('click', () => loadNotesLocations(selectedNotesLocation()));
 clearDraftsBtn.addEventListener('click', clearAutoDrafts);
+duplicateScanBtn.addEventListener('click', scanDuplicatePosts);
+duplicateMergeBtn.addEventListener('click', mergeDuplicatePosts);
 storageProviderSelect.addEventListener('change', () => {
   connectionRequestId++;
   clearProviderStatus();
@@ -601,6 +701,7 @@ async function initialize() {
   await loadSettings();
   renderStoredConnectionStatus();
   await Promise.all([renderQueueInfo(), renderDrafts(), renderRecent()]);
+  void restoreDuplicateScan();
   void syncStorageActivity();
   if (resolveStorageProvider(loadedSettings) !== STORAGE_PROVIDERS.APPLE_NOTES) {
     void checkConnection();

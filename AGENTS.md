@@ -21,6 +21,7 @@
 - `shared/settings.js` 與 `providers/*.js` 是 background／popup 的共用設定與 adapter registry。新增或改名共用檔時同步更新 validator 與 package 必含清單。
 - 中立模型是 `SocialPostData`；工作流不得依賴 Markdown path。`StorageRef` 是 file ref 或 Notes `{provider,noteId,title,externalKey}`；開啟、刪除、exists 一律交給 ref 所屬 provider。
 - 每次只寫一個目前目的地，但 queue 綁建立時的原 provider；切換後仍回原目的地補存，不複製 API Key。
+- storage schema v3 的 `contentDedupeIndex` 只存 fingerprint、sources 與 ref；正文仍以目的地為真相。索引依 provider＋location 分區，不可跨 Vault／Notes folder 共用。
 
 ## 版本、重載與驗證（硬規則）
 
@@ -33,19 +34,33 @@
 
 ## Provider、設定 migration 與 Popup 隔離
 
-- `storageSchemaVersion` migration 是「不批次遷移資料」的唯一例外：先轉設定、refs、thread contexts、drafts 與 queue，寫入後 read-back 深度驗證成功才刪舊 keys；失敗時保留舊資料並停止寫入。正常路徑不得保留舊 schema fallback。
+- `storageSchemaVersion` migration 是「不批次遷移資料」的唯一例外：先轉設定、refs、thread contexts、drafts、queue 與 dedupe index，寫入後 read-back 深度驗證成功才刪舊 keys；失敗時保留舊資料並停止寫入。正常路徑不得保留舊 schema fallback。
 - 「Unknown native host action」先查原始碼 Host 版本、安裝檔版本與 manifest allowed origin；不要先改 background action 名。Host 每次 native message 都是新程序，不依賴 request 間記憶體。
 - Popup 初次開啟不得同步列舉 Notes 或逐筆 exists；Notes locations 用本機 cache、只有進入／重新載入 Apple 面板才更新，自動 activity sync 帶 `skipAppleNotes: true`。
 - Provider selector 改變時立即清掉前一 provider 的 form／action error，連線卡顯示「儲存後生效」。所有非同步檢查帶 request generation；舊 provider 晚回來的 response 不得覆寫新狀態。
 - `recentSaves` 在 storage 保留跨 provider refs，但 Popup「最近儲存」只顯示目前已生效 provider；storageProvider 改變後重繪。Queue UI 必須標成「原目的地」，不得冒充目前目的地錯誤。
 - Apple queue 失敗只保留 queue；Markdown 模式的連線狀態只反映 Markdown Helper，不得自動驗證 Apple 身分。
 
+## 跨平台去重與既有資料合併
+
+- 內容身分不是檔名、分鐘、`recentSaves` 或 source URL：只對原創貼文／原創串文依序串接全文，trim 並把連續空白壓成一格後算 SHA-256。回覆、引用與純圖片排除；大小寫、標點或正文不同仍是不同文章。
+- 只合併 X 與 Threads 的跨平台同文；同平台重發是獨立作品。檔名撞名時先核對 source identity；不同來源加 `_2`、`_3`，絕不可直接覆寫。
+- 自動去重只作用於目前目的地；手動掃描一次跑所有已設定 provider，但每個 provider／location 獨立分組與報錯，不跨服務搬移或刪除。
+- 同 fingerprint 的 prepare→write→index 共用 destination-scoped lock；所有 fingerprint 對 `contentDedupeIndex` 的 read-modify-write 另行序列化，避免並行時遺失索引。
+- 新建或合併筆記寫 `content_fingerprint`、`platforms`、`sources[{platform,url,published_at,external_key}]`；舊 scalar `platform/source/source_url` 只供既有資料讀取。任何 source identity 都要能回查同一 ref。
+- 掃描必須唯讀，結果與 revision snapshot 存本機並可在 Popup 重開後恢復；使用者確認後才合併。掃描後任一筆內容變更就整組 skip，不可套用舊預覽。
+- canonical 固定取最早建立者並保留標題、路徑、正文與手改。duplicate 的可辨識額外區塊附加到「合併保留內容」；無法可靠區分時不得猜測或刪除。
+- 圖片按實際 bytes 的 SHA-256 去重，不用 URL／檔名；不同轉碼都保留。流程固定：讀回全部→複製唯一媒體→寫 canonical→讀回驗證 fingerprint／所有 sources→刪 duplicate→清專屬媒體→同步 recent、thread contexts 與 index。
+- canonical 已更新但 duplicate 刪除失敗時，下次掃描須用 canonical 已收錄的 exact source identity 產生 cleanup group；操作必須冪等。
+- Provider adapter 必須實作 `scanPublished`／`mergeDuplicateGroup`。Notes 掃描只能由使用者觸發並分頁；Popup 初開、activity sync 與一般發文不得暗中列舉整個 Notes folder。
+
 ## Apple 備忘錄契約與已驗證陷阱
 
 - Notes 只透過 scripting dictionary 與 Native Helper；不碰私有 SQLite。所有正文／附件經 `0600` temp file 傳入，不把使用者內容插值進 AppleScript，ensure 清除暫存檔。
-- Native stdout 只能是 4-byte little-endian 長度 + UTF-8 JSON；子程序 stdout／stderr 必須捕捉並用 UTF-8 解碼。`LANG=C`／`LC_ALL=C` 仍要通過 Unicode 測試，避免 `invalid byte sequence in US-ASCII`。
+- Native stdout 只能是 4-byte little-endian 長度 + UTF-8 JSON；子程序 stdout／stderr 必須捕捉並用 UTF-8 解碼。Chrome 啟動 Host 不帶 `LANG`，`Encoding.default_external` 與 filesystem encoding 都退成 US-ASCII，`Dir.each_child` 讀到的中文檔名一碰 UTF-8 正文就 `incompatible character encodings`；host.rb 開頭固定 `Encoding.default_external = Encoding::UTF_8`，Ruby 測試一律帶 `LANG=C` 與中文檔名，不可只用 ASCII fixture。
 - Apple Notes 會正規化 HTML 並移除 `data-sp2o-key`；它只能當 legacy fast path，不能是唯一身分證明。`find/read/upsert/show/delete/exists` 必須退回精確比對「來源：」區塊內的 X status ID／Threads post code。
 - 刪除／更新前先讀回驗證，執行動作時再以剛找到的精確 marker 重查，避免 note ID 指錯或貼文 ID 前綴誤判；真正不符仍回 `NOTES_IDENTITY_MISMATCH`，不可為了好刪而直接信任 note ID。
+- `notesListPosts`、`notesAttachmentHashes`、`notesMergeDuplicates` 同樣只走 scripting dictionary；合併前驗證每篇 revision，合併後驗證所有來源 marker 才刪 duplicate。附件先匯出私有 temp 算 SHA-256，不把大圖塞進掃描預覽。
 - 正文所有使用者／引用文字 HTML escape。來源、回覆、引用、平台與原始時間放正文；Notes creation／modification date 唯讀。
 - 三日自回覆以 note ID 讀回目前 HTML 後追加，保留手改；母筆記不存在、鎖定或身分不符時另建並標示母筆記，不得丟回覆。附件重試只替換同名 `image-NN.ext`。
 - Apple 模式草稿完整快照只存 `draftSnapshot_x/threads`；正式貼文被目的地接受後才清。Notes 不支援七日封存。
@@ -77,7 +92,7 @@
 - 草稿與正式貼文共用 `getThreadItems()`／`renderContentSection()`；串文逐則 heading + code block。Fence 至少 3 個 backticks 且長於原文最長 run；引用／圖片放 block 外。
 - YAML 字串全走 `escapeYaml()`；引用貼文是不可信內容。格式測試須過 `YAML.safe_load`、Unicode、dynamic fence 與 Native 寫入逐字 read-back；不批次改舊筆記。
 - 每則最多 20 張，圖片先於 Markdown，路徑 `<mediaPath>/<note-stem>/image-NN.ext`；單張失敗仍存正文與遠端 URL。新貼文不建 `_assets`，舊 `_assets` 不搬不刪。
-- 每 7 天封存 `created_at < cutoff` 到 `Archive/{發文,回覆,引用,串文}`；剛好 7 天保留。搬移後重算相對圖片連結、保留 mode／mtime、同名 skip，並同步更新 recent refs。
+- 具 `capabilities.archive` 的 Markdown／REST provider 每日檢查 `created_at < 7 天 cutoff`，啟動後約一分鐘先跑一次；Apple Notes 不封存。SW 啟動、popup 儲存設定（`RETRY_QUEUE`）與 alarm 觸發三處一律走 `syncArchiveMaintenance()` 依 capabilities 判斷，不得各自列 provider 白名單。`delayInMinutes` 不可等於整個週期——reload 會清空 alarm 並重新排到一個週期後，永遠跑不到。搬到 `Archive/{發文,回覆,引用,串文}` 後重算圖片連結、保留 mode／mtime、同名 skip，並同步 recent、thread contexts 與 dedupe index refs。
 - 真實 Vault 驗收要核對 eligible、分類、YAML、broken images、conflict、第二次執行冪等性；全部 0 才完成。
 
 ## Native／iCloud、REST 與刪除
@@ -101,12 +116,14 @@
 - Web Store 只上傳 Release 的 extension ZIP，不上傳 Helper。Dashboard「已發布」、語系 Approved 或待審不代表可安裝；update service ok、匿名頁有「加到 Chrome」且隔離安裝成功才算公開。
 - Web Store 優先 Chrome connector；只有使用者授權才用 AppleScript。若落在 register／協議／$5 頁代表錯帳戶，不代勾或付款。
 
-## 目前進度（2026-08-10）
+## 目前進度（2026-08-26）
 
-- 工作樹 Extension `2.15.6`、Host `1.8.2`；整批多後端修改仍未 commit。Host 1.8.2 已安裝，原始碼與安裝檔 SHA-256 一致。
-- 已完成自動驗收：三 provider 契約、migration read-back／冪等、Unicode Native framing、Notes location／upsert／附件／錯誤分類、provider 切換、原 provider queue、Popup 非同步隔離與 current-provider recent filtering。
-- 已修正並以 red→green 回歸保護：migration 讀回驗證誤敗、舊 Host `Unknown native host action`、US-ASCII 解碼、Notes select／popup 卡頓、Apple error 污染 Markdown、Notes 正規化 HTML 後刪除身分誤判。
-- 待人工驗收：重載 unpacked extension 確認 `2.15.6`；真實 Apple Notes 測試資料夾的 create／手改／append／open／delete／附件重試；X／Threads 多圖與 Threads inline 回覆。未授權不得代發或碰既有 Notes／Vault。
+- 工作樹 Extension `2.17.3`、storage schema v3、Host `1.9.2`（`MIN_NATIVE_HOST_VERSION` 同步提高）；自動封存、跨平台去重與封存排程修復仍未 commit。Host 已安裝，`cmp` 證實安裝檔等於 `native/host.rb`。
+- 自動封存曾整整一個月靜默失效，根因三層且互相遮蔽：舊 alarm 的 `delayInMinutes` 等於整個週期（reload 就重排，永遠跑不到）、`RETRY_QUEUE` 對 markdown-folder 誤呼叫 `stopArchiveMaintenance()`、Host 在 Chrome 無 `LANG` 環境下處理中文檔名時編碼崩潰。三者都已 red→green 修掉。
+- 已以 red→green 回歸保護：三 provider 新貼文去重、同平台／同分鐘不覆寫、串文對單篇、REST／Notes 既有掃描、oldest canonical、手改保留、圖片 bytes hash、revision stale skip、刪除失敗續處理、Popup 掃描恢復、v2→v3 migration 與 index 並行寫入、儲存設定不得清封存 alarm、`LANG=C` 下中文檔名封存。
+- 自動驗收已通過：所有修改 JS `node --check`、`ruby -c`、validator、完整 `tests/media-sync.test.mjs`、`git diff --check`；測試使用隔離 Vault、假 Host／REST／`osascript`，未碰真實內容。
+- 真實 Vault 已於 2026-08-26 補封存 111 筆逾期貼文（主資料夾僅餘 7 天內 23 筆、圖片連結 0 broken）。該批是繞過 extension 直接呼叫 Host 執行的，`contentDedupeIndex` 內約 20 筆 refs 仍指舊路徑，必要時由 Popup 手動掃描重新分組。
+- 待人工驗收：重載 unpacked extension 確認各 context 都是 `2.17.3`，並確認 catch-up 那次印出封存 log 而非編碼錯誤（Vault 已清空，正常結果是「移動 0 筆」）；真實 Chrome→Host 的實際搬移要等再有貼文逾期才驗得到。用測試 Vault／Notes folder 預覽並確認一次既有重複合併；X／Threads 真實跨平台同文、多圖與中途關閉 Popup。未授權不得代發或掃描日常資料。
 - 已公開固定基準仍是 tag `v2.4.2`（commit `8569607`）；不可把目前 dirty 工作樹或商店審查狀態宣稱成已發布版本。
 
 ## 最短專項診斷
@@ -117,5 +134,6 @@
 - 草稿復活：composer scope → editor selector／ID → draftSessionId → content/background 2 秒 guard → storage → 目的地。
 - 漏回覆：`replyTo` → context/recent/source index → 三日窗 → read-back append → 失敗另存。
 - Threads 圖片：REST endpoint → forwarded response → parser → CDN → binary → Markdown。
-- 七日封存：cutoff／類型 → conflict → move → relative links → recent refs → 第二次執行。
+- 七日封存：`capabilities.archive` → alarm 是否存在（`chrome.alarms.getAll`）→ Host 編碼／`LANG` → cutoff／類型 → conflict → move → relative links → recent refs → 第二次執行。錯誤被 alarm handler 的 catch 吞成一行 log，先在 SW console 直接跑 `archiveOldSocialPosts(await getStorageSettings())`。
+- 重複未合併：eligibility → normalized text／fingerprint → destination scope → index candidate → ref read-back → sources；既有掃描再查 revision、manual sections、media hashes 與 delete-after-verify。
 - 發布：manifest version → tag → CI → Release assets/checksum → Web Store Draft → review → update service／匿名頁／隔離安裝。

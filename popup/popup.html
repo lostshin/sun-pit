@@ -147,6 +147,19 @@
         </div>
         <ul id="recentList" class="activity-list"></ul>
       </section>
+
+      <section id="duplicateSection" class="activity-section duplicate-section" aria-labelledby="duplicateTitle">
+        <div class="activity-heading">
+          <div>
+            <h2 id="duplicateTitle">重複文章</h2>
+            <p class="duplicate-description">掃描所有已設定目的地；確認前不會修改任何筆記。</p>
+          </div>
+          <button type="button" id="duplicateScanBtn" class="secondary compact-button">開始掃描</button>
+        </div>
+        <div id="duplicateStatus" class="duplicate-status" role="status" aria-live="polite"></div>
+        <div id="duplicateResults" class="duplicate-results" hidden></div>
+        <button type="button" id="duplicateMergeBtn" class="primary duplicate-merge-button" hidden>合併已勾選項目</button>
+      </section>
     </main>
 
     <footer class="app-footer">
