@@ -40,7 +40,7 @@
       const operation = url.split('/graphql/')[1].split('?')[0].split('/').pop();
       if (!/^User/i.test(operation) || reportedQueries.has(operation)) return;
       reportedQueries.add(operation);
-      console.log('[Social Post to Obsidian] 未比對的個人頁端點:', operation);
+      console.log('[順筆] 未比對的個人頁端點:', operation);
     } catch (e) { /* ignore */ }
   }
 
@@ -145,7 +145,7 @@
   const liveRequests = new Map();
 
   function scanLog() {
-    console.log.apply(console, ['[Social Post to Obsidian]'].concat(Array.prototype.slice.call(arguments)));
+    console.log.apply(console, ['[順筆]'].concat(Array.prototype.slice.call(arguments)));
   }
 
   // 時間軸 GET 命中時，把網址與標頭一起留下來給重播用

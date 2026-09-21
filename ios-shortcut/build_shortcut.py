@@ -28,7 +28,7 @@ CONFIG = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
 SCREEN_NAME = CONFIG["screen_name"]
 # 由實機探針捷徑取得，含裝置專屬 ID，所以放在未進版控的 config.json
 VAULT_FOLDER = CONFIG["vault_folder"]
-SHORTCUT_NAME = CONFIG.get("shortcut_name", "存貼文到 Obsidian")
+SHORTCUT_NAME = CONFIG.get("shortcut_name", "順筆・手機補記")
 PLACEHOLDER = "￼"
 
 actions = []

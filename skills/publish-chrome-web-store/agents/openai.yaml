@@ -1,0 +1,4 @@
+interface:
+  display_name: "Publish Chrome Web Store"
+  short_description: "驗證 Release 資產並安全上傳、送審與判讀商店狀態"
+  default_prompt: "Use $publish-chrome-web-store to verify the GitHub Release asset and submit an extension update to Chrome Web Store."

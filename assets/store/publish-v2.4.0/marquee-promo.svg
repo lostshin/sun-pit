@@ -23,7 +23,7 @@
       <rect width="56" height="56" rx="16" fill="#28242e"/>
       <path d="M13 14h30a6 6 0 0 1 6 6v16a6 6 0 0 1-6 6H29l-10 8v-8h-6a6 6 0 0 1-6-6V20a6 6 0 0 1 6-6Z" fill="#fffdf9"/>
       <path d="M28 20v13m-6-6 6 6 6-6" fill="none" stroke="#6e56b3" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/>
-      <text x="76" y="27" fill="#25222b" font-size="24" font-weight="800">Social Post to Obsidian</text>
+      <text x="76" y="27" fill="#25222b" font-size="24" font-weight="800">順筆</text>
       <text x="76" y="50" fill="#756e7b" font-size="11" font-weight="700" letter-spacing="1.5">X・THREADS POST BACKUP</text>
     </g>
 

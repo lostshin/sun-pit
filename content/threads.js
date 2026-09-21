@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const LOG = '[Social Post to Obsidian]';
+  const LOG = '[順筆]';
   const INPUT_SELECTOR = '[contenteditable="true"], [role="textbox"], textarea';
   const SUBMIT_SELECTOR = '[role="button"], button[type="submit"]';
   const COMPOSER_BOUNDARY_SELECTOR = 'main, [role="main"], nav, [role="navigation"]';

@@ -110,7 +110,7 @@ try {
   copyFileSync('native/host.rb', join(installerTestNativeDirectory, 'host.rb'));
   const installerConfigDirectory = join(
     installerTestHome,
-    'Library/Application Support/Social Post to Obsidian'
+    'Library/Application Support/sun-pit'
   );
   mkdirSync(installerConfigDirectory, { recursive: true });
   writeFileSync(
@@ -125,7 +125,7 @@ try {
   assert.equal(installResult.status, 0, installResult.stderr);
   const installedManifest = JSON.parse(readFileSync(join(
     installerTestHome,
-    'Library/Application Support/Google/Chrome/NativeMessagingHosts/com.lostshin.social_post_to_obsidian.json'
+    'Library/Application Support/Google/Chrome/NativeMessagingHosts/com.lostshin.sun_pit.json'
   ), 'utf8'));
   assert.ok(
     installedManifest.allowed_origins.includes('chrome-extension://jdfempgjnmdlokacfjmnipihhghcnomb/'),
@@ -866,13 +866,13 @@ const nativeTestRoot = mkdtempSync(join(tmpdir(), 'sp2o-native-test-'));
 try {
   const vaultPath = join(nativeTestRoot, 'Test Vault');
   const configDirectory = join(nativeTestRoot, 'config');
-  const mediaRoot = join(vaultPath, '附件', 'Social Post to Obsidian');
+  const mediaRoot = join(vaultPath, '附件', '順筆');
   mkdirSync(vaultPath, { recursive: true });
 
   assert.deepEqual(sendNativeHostMessage({ action: 'ping' }, configDirectory), {
     ok: true,
     configured: false,
-    version: '1.9.2'
+    version: '1.10.0'
   });
 
   // framing 錯誤：host 需回傳 framed 錯誤訊息後結束，而不是直接崩潰
@@ -1119,7 +1119,7 @@ esac
       'post_type: "quote"',
       '---',
       '',
-      '![圖片](<../../附件/Social Post to Obsidian/old/image-01.jpg>)'
+      '![圖片](<../../附件/順筆/old/image-01.jpg>)'
     ].join('\n')
   }, configDirectory).ok, true);
   assert.equal(sendNativeHostMessage({
@@ -1194,7 +1194,7 @@ esac
   );
   assert.match(
     readFileSync(join(vaultPath, '個人創作', '社群推文', 'Archive', '引用', 'old-quote.md'), 'utf8'),
-    /<\.\.\/\.\.\/\.\.\/\.\.\/附件\/Social Post to Obsidian\/old\/image-01\.jpg>/
+    /<\.\.\/\.\.\/\.\.\/\.\.\/附件\/順筆\/old\/image-01\.jpg>/
   );
   assert.equal(
     existsSync(join(vaultPath, '個人創作', '社群推文', 'recent-post.md')),
@@ -1236,7 +1236,7 @@ esac
         '',
         '含中文與 emoji 🥳 的正文。',
         '',
-        '![圖片 1](<../../附件/Social Post to Obsidian/中文資料夾/image-01.jpg>)'
+        '![圖片 1](<../../附件/順筆/中文資料夾/image-01.jpg>)'
       ].join('\n')
     }, configDirectory).ok, true);
     const asciiLocaleArchive = sendNativeHostMessage({
@@ -1258,7 +1258,7 @@ esac
         join(vaultPath, '個人創作', '社群推文', 'Archive', '發文', '2026-07-20_1041_中文檔名的貼文🥳.md'),
         'utf8'
       ),
-      /<\.\.\/\.\.\/\.\.\/\.\.\/附件\/Social Post to Obsidian\/中文資料夾\/image-01\.jpg>/,
+      /<\.\.\/\.\.\/\.\.\/\.\.\/附件\/順筆\/中文資料夾\/image-01\.jpg>/,
       'LANG=C 下圖片相對連結仍要正確改寫'
     );
   }
@@ -1295,7 +1295,7 @@ esac
 
   assert.equal(sendNativeHostMessage({
     action: 'write',
-    path: '附件/Social Post to Obsidian/2026-07-18_1100_has-image/image-01.jpg',
+    path: '附件/順筆/2026-07-18_1100_has-image/image-01.jpg',
     encoding: 'base64',
     data: Buffer.from([0xff, 0xd8, 0xff]).toString('base64')
   }, configDirectory).ok, true);
@@ -1310,7 +1310,7 @@ esac
   mkdirSync(join(mediaRoot, 'unrelated-empty'), { recursive: true });
   const cleanup = sendNativeHostMessage({
     action: 'cleanEmptyMediaFolders',
-    path: '附件/Social Post to Obsidian'
+    path: '附件/順筆'
   }, configDirectory);
   assert.equal(cleanup.removed, 2);
   assert.equal(existsSync(join(mediaRoot, '2026-07-01_0900_old-empty')), false);
@@ -1466,14 +1466,14 @@ function loadBackground(initialStored = {}, storageOptions = {}) {
     storageProvider: 'markdown-folder',
     markdownFolderSettings: {
       basePath: '個人創作/社群推文',
-      mediaPath: '附件/Social Post to Obsidian',
+      mediaPath: '附件/順筆',
       folderName: 'Test Vault'
     },
     obsidianRestSettings: {
       apiKey: 'test-key',
       port: 27123,
       basePath: '個人創作/社群推文',
-      mediaPath: '附件/Social Post to Obsidian'
+      mediaPath: '附件/順筆'
     },
     appleNotesSettings: {},
     ...initialStored
@@ -1559,8 +1559,9 @@ function loadBackground(initialStored = {}, storageOptions = {}) {
       lastError: null,
       getManifest: () => ({ version: manifestVersion }),
       async sendNativeMessage(host, message) {
-        assert.equal(host, 'com.lostshin.social_post_to_obsidian');
+        assert.equal(host, 'com.lostshin.sun_pit');
         nativeMessages.push(message);
+        if (storageOptions.nativeRequest) return storageOptions.nativeRequest(message);
         if (nativeMode === 'notes-unavailable' && String(message.action).startsWith('notes')) {
           return { ok: false, code: 'NOTES_UNAVAILABLE', error: 'Apple 備忘錄目前無法啟動' };
         }
@@ -1575,7 +1576,7 @@ function loadBackground(initialStored = {}, storageOptions = {}) {
           return {
             ok: true,
             configured: true,
-            version: '1.9.2',
+            version: '1.10.0',
             folderName: 'Test Vault',
             vaultName: 'Test Vault',
             isObsidianVault: true
@@ -2037,9 +2038,9 @@ assert.deepEqual(
   {
     ok: false,
     code: 'NATIVE_HOST_UPDATE_REQUIRED',
-    error: '本機 Helper 版本過舊（目前 1.7.0，需要 1.9.2 以上）。請重新執行最新版 Helper 安裝程式，再重新載入擴充功能。',
+    error: '本機 Helper 版本過舊（目前 1.7.0，需要 1.10.0 以上）。請重新執行最新版 Helper 安裝程式，再重新載入擴充功能。',
     currentVersion: '1.7.0',
-    requiredVersion: '1.9.2'
+    requiredVersion: '1.10.0'
   },
   '舊版 Host 不認得 Apple 備忘錄 action 時，必須回傳可採取行動的升級提示'
 );
@@ -2052,14 +2053,14 @@ assert.deepEqual(
   {
     ok: false,
     code: 'NATIVE_HOST_UPDATE_REQUIRED',
-    error: '本機 Helper 版本過舊（目前 1.7.0，需要 1.9.2 以上）。請重新執行最新版 Helper 安裝程式，再重新載入擴充功能。',
+    error: '本機 Helper 版本過舊（目前 1.7.0，需要 1.10.0 以上）。請重新執行最新版 Helper 安裝程式，再重新載入擴充功能。',
     currentVersion: '1.7.0',
-    requiredVersion: '1.9.2'
+    requiredVersion: '1.10.0'
   },
   'Popup 連線檢查必須在使用 Apple 備忘錄前主動辨識舊版 Host'
 );
 background.stored.storageProvider = 'markdown-folder';
-background.stored.mediaPath = '附件/Social Post to Obsidian';
+background.stored.mediaPath = '附件/順筆';
 await background.context.startNativeMaintenance();
 assert.ok(background.alarmCreates.some(item => item.name === 'sp2o-vault-maintenance'));
 assert.equal(
@@ -2069,7 +2070,7 @@ assert.equal(
 );
 assert.deepEqual(JSON.parse(JSON.stringify(background.nativeMessages.at(-1))), {
   action: 'cleanEmptyMediaFolders',
-  path: '附件/Social Post to Obsidian'
+  path: '附件/順筆'
 });
 {
   const markdownArchiveBackground = loadBackground({ storageProvider: 'markdown-folder' });
@@ -2096,6 +2097,38 @@ assert.deepEqual(JSON.parse(JSON.stringify(background.nativeMessages.at(-1))), {
     '個人創作/社群推文/Archive/發文/old.md',
     'Markdown 封存後必須同步更新最近儲存 ref'
   );
+}
+
+// Archive bookkeeping must stay in the destination that actually moved files.
+{
+  const app = loadBackground();
+  await new Promise(resolve => setImmediate(resolve));
+  const settings = await app.context.getStorageSettings();
+  const scope = app.context.dedupeScopeKey(settings);
+  const from = '個人創作/社群推文/old.md';
+  const to = '個人創作/社群推文/Archive/發文/old.md';
+  const entry = { ref: { provider: 'markdown-folder', path: from }, sources: [] };
+  app.stored.contentDedupeIndex = { [scope]: { hash: [entry] }, other: { hash: [entry] } };
+  app.stored.recentSaves = [{ ref: { provider: 'obsidian-rest', path: from } }];
+  app.setNativeArchiveMoves([{ from, to }]);
+  await app.context.archiveOldSocialPosts(settings);
+  assert.equal(app.stored.contentDedupeIndex.other.hash[0].ref.path, from,
+    '封存不可改寫其他 location 的索引');
+  assert.equal(app.stored.recentSaves[0].ref.path, from, '封存不可改寫其他 provider 的 recent');
+  assert.equal(app.stored.contentDedupeIndex[scope].hash[0].ref.path, to);
+  let status = await app.context.getMaintenanceStatus();
+  assert.equal(status.archive.state, 'success');
+  assert.equal(status.archive.moved, 1);
+  app.setNativeMode('rejected');
+  await assert.rejects(app.context.archiveOldSocialPosts(settings));
+  status = await app.context.getMaintenanceStatus();
+  assert.equal(status.archive.state, 'error');
+  assert.match(status.archive.error, /configured/);
+  assert.ok(status.archive.lastSuccessAt, '失敗後仍保留最後成功時間');
+  app.stored.storageProvider = 'apple-notes';
+  status = await app.context.getMaintenanceStatus();
+  assert.equal(status.supportsArchive, false);
+  assert.equal(status.archive, null, '切換目的地不可顯示前一目的地的封存狀態');
 }
 
 const restArchiveBackground = loadBackground({ storageProvider: 'obsidian-rest' });
@@ -2176,7 +2209,7 @@ restArchiveBackground.setRestFile('個人創作/社群推文/old.md', [
   'post_type: "quote"',
   '---',
   '',
-  '![圖片](<../../附件/Social Post to Obsidian/old/image-01.jpg>)'
+  '![圖片](<../../附件/順筆/old/image-01.jpg>)'
 ].join('\n'));
 assert.equal(await restArchiveBackground.context.archiveOldSocialPosts({
   storageProvider: 'obsidian-rest',
@@ -2187,7 +2220,7 @@ assert.equal(await restArchiveBackground.context.archiveOldSocialPosts({
 assert.equal(restArchiveBackground.hasRestFile('個人創作/社群推文/old.md'), false);
 assert.match(
   restArchiveBackground.getRestFile('個人創作/社群推文/Archive/引用/old.md'),
-  /<\.\.\/\.\.\/\.\.\/\.\.\/附件\/Social Post to Obsidian\/old\/image-01\.jpg>/
+  /<\.\.\/\.\.\/\.\.\/\.\.\/附件\/順筆\/old\/image-01\.jpg>/
 );
 assert.equal(
   restArchiveBackground.stored.recentSaves[0].ref.path,
@@ -2433,7 +2466,7 @@ const settings = {
   apiKey: 'test-key',
   port: 27123,
   basePath: '個人創作/社群推文',
-  mediaPath: '附件/Social Post to Obsidian'
+  mediaPath: '附件/順筆'
 };
 
 const appleNotesSettings = {
@@ -2695,7 +2728,7 @@ assert.deepEqual(
 const classifiedSaveBackground = loadBackground();
 classifiedSaveBackground.stored.storageProvider = 'markdown-folder';
 classifiedSaveBackground.stored.basePath = '個人創作/社群推文';
-classifiedSaveBackground.stored.mediaPath = '附件/Social Post to Obsidian';
+classifiedSaveBackground.stored.mediaPath = '附件/順筆';
 await classifiedSaveBackground.context.handleSavePost({
   ...postData,
   media: [],
@@ -2761,12 +2794,12 @@ assert.equal(background.requests.length, 2);
 assert.equal(background.requests[0].init.headers['Content-Type'], 'image/jpeg');
 assert.match(
   decodeURIComponent(background.requests[0].url),
-  /附件\/Social Post to Obsidian\/2026-07-18_1100_圖片同步測試\/image-01\.jpg$/
+  /附件\/順筆\/2026-07-18_1100_圖片同步測試\/image-01\.jpg$/
 );
 const markdown = background.requests[1].init.body;
 assert.match(
   markdown,
-  /!\[成功圖片\]\(<\.\.\/\.\.\/附件\/Social Post to Obsidian\/2026-07-18_1100_圖片同步測試\/image-01\.jpg>\)/
+  /!\[成功圖片\]\(<\.\.\/\.\.\/附件\/順筆\/2026-07-18_1100_圖片同步測試\/image-01\.jpg>\)/
 );
 assert.match(markdown, /!\[失敗圖片\]\(<https:\/\/pbs\.twimg\.com\/media\/missing\.jpg>\)/);
 
@@ -2782,7 +2815,7 @@ const threadsConfigureResult = await background.context.savePostBundle({
 assert.deepEqual(JSON.parse(JSON.stringify(threadsConfigureResult)), { savedMedia: 1, failedMedia: 0 });
 assert.match(
   decodeURIComponent(background.requests[2].url),
-  /附件\/Social Post to Obsidian\/2026-07-18_1110_現行發文端點圖片\/image-01\.webp$/
+  /附件\/順筆\/2026-07-18_1110_現行發文端點圖片\/image-01\.webp$/
 );
 assert.match(background.requests[3].init.body, /!\[現行 Threads 圖片\]/);
 
@@ -2812,7 +2845,7 @@ await new Promise(resolve => setImmediate(resolve));
 const nativeSettings = {
   storageProvider: 'markdown-folder',
   basePath: '個人創作/社群推文',
-  mediaPath: '附件/Social Post to Obsidian'
+  mediaPath: '附件/順筆'
 };
 const nativeMessagesBeforeBundle = nativeBackground.nativeMessages.length;
 const nativeResult = await nativeBackground.context.savePostBundle(
@@ -2826,7 +2859,7 @@ const nativeWrites = nativeBackground.nativeMessages.filter(message => message.a
 assert.equal(nativeWrites.length, 2);
 assert.match(
   nativeWrites[0].path,
-  /附件\/Social Post to Obsidian\/2026-07-18_1100_圖片同步測試\/image-01\.jpg$/
+  /附件\/順筆\/2026-07-18_1100_圖片同步測試\/image-01\.jpg$/
 );
 assert.equal(nativeWrites[0].encoding, 'base64');
 assert.equal(nativeWrites[0].data, '/9j/');
@@ -2924,7 +2957,7 @@ assert.match(
 
 const nativeSyncBackground = loadBackground();
 nativeSyncBackground.stored.storageProvider = 'markdown-folder';
-nativeSyncBackground.stored.mediaPath = '附件/Social Post to Obsidian';
+nativeSyncBackground.stored.mediaPath = '附件/順筆';
 nativeSyncBackground.stored.draftStatus_x = {
   path: '個人創作/社群推文/_草稿_Twitter.md'
 };
@@ -3007,7 +3040,7 @@ assert.equal(restSyncBackground.requests.at(-1).init.method, 'GET');
 
 const deleteActivityBackground = loadBackground();
 deleteActivityBackground.stored.storageProvider = 'markdown-folder';
-deleteActivityBackground.stored.mediaPath = '附件/Social Post to Obsidian';
+deleteActivityBackground.stored.mediaPath = '附件/順筆';
 deleteActivityBackground.stored.recentSaves = [{ filename, path, platform: 'x' }];
 deleteActivityBackground.stored.recentThreadContexts = [{ path, platform: 'x' }];
 const deleteActivityResult = await deleteActivityBackground.context.deleteVaultActivity({
@@ -3059,7 +3092,7 @@ assert.equal(nativeBackground.stored.offlineQueue[0].data.content, postData.cont
 assert.equal('apiKey' in nativeBackground.stored.offlineQueue[0], false);
 
 nativeBackground.stored.storageProvider = 'markdown-folder';
-nativeBackground.stored.mediaPath = '附件/Social Post to Obsidian';
+nativeBackground.stored.mediaPath = '附件/順筆';
 nativeBackground.setNativeMode('ok');
 await nativeBackground.context.retryOfflineQueue();
 assert.deepEqual(JSON.parse(JSON.stringify(nativeBackground.stored.offlineQueue)), []);
@@ -3081,7 +3114,7 @@ assert.equal('markdown' in background.stored.offlineQueue[0], false);
 
 background.stored.apiKey = 'test-key';
 background.stored.port = 27123;
-background.stored.mediaPath = '附件/Social Post to Obsidian';
+background.stored.mediaPath = '附件/順筆';
 background.setLocalMode('ok');
 await background.context.retryOfflineQueue();
 assert.deepEqual(JSON.parse(JSON.stringify(background.stored.offlineQueue)), []);
@@ -3089,7 +3122,7 @@ assert.equal(background.stored.recentSaves[0].filename, filename);
 assert.equal(background.stored.recentSaves[0].preview, '圖片同步測試');
 assert.match(
   decodeURIComponent(background.requests.at(-2).url),
-  /附件\/Social Post to Obsidian\/2026-07-18_1100_圖片同步測試\/image-01\.jpg$/
+  /附件\/順筆\/2026-07-18_1100_圖片同步測試\/image-01\.jpg$/
 );
 
 // 發佈失敗（REST 回 401，非連線錯誤）：不進離線佇列，且草稿檔與 draftStatus 都保留
@@ -3142,7 +3175,7 @@ assert.equal(dedupBackground.stored.recentSaves[0].ref.path, path);
 const legacyAppendBackground = loadBackground();
 legacyAppendBackground.stored.storageProvider = 'markdown-folder';
 legacyAppendBackground.stored.basePath = '個人創作/社群推文';
-legacyAppendBackground.stored.mediaPath = '附件/Social Post to Obsidian';
+legacyAppendBackground.stored.mediaPath = '附件/順筆';
 const reportedRootUrl = 'https://x.com/lokunlim/status/2083453394208067681';
 const reportedReplyUrl = 'https://x.com/lokunlim/status/2083584260859142583';
 const legacyRootPath = '個人創作/社群推文/2026-08-01_1522_韓國父權.md';
@@ -3160,7 +3193,7 @@ const legacyRootData = {
   }
 };
 const legacyRootMarkdown = legacyAppendBackground.context.generateMarkdown(legacyRootData, [{
-  path: '../../附件/Social Post to Obsidian/2026-08-01_1522_韓國父權/image-01.jpg',
+  path: '../../附件/順筆/2026-08-01_1522_韓國父權/image-01.jpg',
   alt: '母文圖片'
 }]);
 legacyAppendBackground.setNativeFile(legacyRootPath, legacyRootMarkdown);
@@ -3208,7 +3241,7 @@ assert.deepEqual(
 const editedRootBackground = loadBackground();
 editedRootBackground.stored.storageProvider = 'markdown-folder';
 editedRootBackground.stored.basePath = '個人創作/社群推文';
-editedRootBackground.stored.mediaPath = '附件/Social Post to Obsidian';
+editedRootBackground.stored.mediaPath = '附件/順筆';
 const editedRootPath = '個人創作/社群推文/2026-08-01_1522_手改過的母文.md';
 const editedRootMarkdown = editedRootBackground.context
   .generateMarkdown({ ...legacyRootData, quoted: null }, [])
@@ -3240,7 +3273,7 @@ assert.equal(parseYamlFrontmatter(editedRootWrite.data).thread_count, 2);
 const wrongAnchorBackground = loadBackground();
 wrongAnchorBackground.stored.storageProvider = 'markdown-folder';
 wrongAnchorBackground.stored.basePath = '個人創作/社群推文';
-wrongAnchorBackground.stored.mediaPath = '附件/Social Post to Obsidian';
+wrongAnchorBackground.stored.mediaPath = '附件/順筆';
 const wrongAnchorPath = '個人創作/社群推文/2026-08-01_1522_換過內容的檔.md';
 wrongAnchorBackground.setNativeFile(
   wrongAnchorPath,
@@ -3281,7 +3314,7 @@ assert.match(wrongAnchorWrite.data, /> \[!info\] 接續 \[\[2026-08-01_1522_換�
 const brokenRootBackground = loadBackground();
 brokenRootBackground.stored.storageProvider = 'markdown-folder';
 brokenRootBackground.stored.basePath = '個人創作/社群推文';
-brokenRootBackground.stored.mediaPath = '附件/Social Post to Obsidian';
+brokenRootBackground.stored.mediaPath = '附件/順筆';
 const brokenRootPath = '個人創作/社群推文/2026-08-01_1522_待改壞的母文.md';
 brokenRootBackground.setNativeFile(
   brokenRootPath,
@@ -3352,7 +3385,7 @@ assert.deepEqual(
 const appendedThreadBackground = loadBackground();
 appendedThreadBackground.stored.storageProvider = 'markdown-folder';
 appendedThreadBackground.stored.basePath = '個人創作/社群推文';
-appendedThreadBackground.stored.mediaPath = '附件/Social Post to Obsidian';
+appendedThreadBackground.stored.mediaPath = '附件/順筆';
 const appendedRoot = {
   content: '原本的貼文',
   platform: 'x',
@@ -3416,7 +3449,7 @@ assert.notEqual(independentWrites[4].path, appendedThreadWrites[0].path);
 const threeDayBoundaryBackground = loadBackground();
 threeDayBoundaryBackground.stored.storageProvider = 'markdown-folder';
 threeDayBoundaryBackground.stored.basePath = '個人創作/社群推文';
-threeDayBoundaryBackground.stored.mediaPath = '附件/Social Post to Obsidian';
+threeDayBoundaryBackground.stored.mediaPath = '附件/順筆';
 await threeDayBoundaryBackground.context.handleSavePost(appendedRoot, null);
 await threeDayBoundaryBackground.context.handleSavePost({
   content: '剛好三天後的補充',
@@ -3434,7 +3467,7 @@ assert.equal(threeDayBoundaryWrites[1].path, threeDayBoundaryWrites[0].path);
 const fixedWindowBackground = loadBackground();
 fixedWindowBackground.stored.storageProvider = 'markdown-folder';
 fixedWindowBackground.stored.basePath = '個人創作/社群推文';
-fixedWindowBackground.stored.mediaPath = '附件/Social Post to Obsidian';
+fixedWindowBackground.stored.mediaPath = '附件/順筆';
 await fixedWindowBackground.context.handleSavePost(appendedRoot, null);
 await fixedWindowBackground.context.handleSavePost({
   content: '第二天的補充',
@@ -3461,7 +3494,7 @@ assert.notEqual(fixedWindowWrites[2].path, fixedWindowWrites[0].path);
 const evictedRecentBackground = loadBackground();
 evictedRecentBackground.stored.storageProvider = 'markdown-folder';
 evictedRecentBackground.stored.basePath = '個人創作/社群推文';
-evictedRecentBackground.stored.mediaPath = '附件/Social Post to Obsidian';
+evictedRecentBackground.stored.mediaPath = '附件/順筆';
 await evictedRecentBackground.context.handleSavePost(appendedRoot, null);
 const evictedRootPath = evictedRecentBackground.nativeMessages
   .find(message => message.action === 'write').path;
@@ -3495,7 +3528,7 @@ assert.equal(
 const correctedAppendBackground = loadBackground();
 correctedAppendBackground.stored.storageProvider = 'markdown-folder';
 correctedAppendBackground.stored.basePath = '個人創作/社群推文';
-correctedAppendBackground.stored.mediaPath = '附件/Social Post to Obsidian';
+correctedAppendBackground.stored.mediaPath = '附件/順筆';
 await correctedAppendBackground.context.handleSavePost({
   ...appendedRoot,
   draftSessionId: 'x:root:1'
@@ -3530,7 +3563,7 @@ assert.ok(
 const appendedThreadsBackground = loadBackground();
 appendedThreadsBackground.stored.storageProvider = 'markdown-folder';
 appendedThreadsBackground.stored.basePath = '個人創作/社群推文';
-appendedThreadsBackground.stored.mediaPath = '附件/Social Post to Obsidian';
+appendedThreadsBackground.stored.mediaPath = '附件/順筆';
 const threadsRoot = {
   content: 'Threads 原文',
   platform: 'threads',
@@ -3758,7 +3791,7 @@ assert.deepEqual(
 const mobileThreadContinuationBackground = loadBackground();
 mobileThreadContinuationBackground.stored.storageProvider = 'markdown-folder';
 mobileThreadContinuationBackground.stored.basePath = '個人創作/社群推文';
-mobileThreadContinuationBackground.stored.mediaPath = '附件/Social Post to Obsidian';
+mobileThreadContinuationBackground.stored.mediaPath = '附件/順筆';
 await mobileThreadContinuationBackground.context.handleSavePost(threadNotes[0], null);
 const mobileThreadRootPath = mobileThreadContinuationBackground.nativeMessages
   .find(message => message.action === 'write').path;
@@ -3819,7 +3852,7 @@ assert.equal(mobileThreeDayNotes[1].replyTo, 'https://x.com/me/status/4101');
 const mobileThreeDayBackground = loadBackground();
 mobileThreeDayBackground.stored.storageProvider = 'markdown-folder';
 mobileThreeDayBackground.stored.basePath = '個人創作/社群推文';
-mobileThreeDayBackground.stored.mediaPath = '附件/Social Post to Obsidian';
+mobileThreeDayBackground.stored.mediaPath = '附件/順筆';
 mobileThreeDayBackground.setNativeMode('missing');
 assert.deepEqual(
   JSON.parse(JSON.stringify(
@@ -3850,7 +3883,7 @@ assert.equal(mobileThreeDayBackground.stored.recentSaves.length, 1);
 const laterMobileReplyBackground = loadBackground();
 laterMobileReplyBackground.stored.storageProvider = 'markdown-folder';
 laterMobileReplyBackground.stored.basePath = '個人創作/社群推文';
-laterMobileReplyBackground.stored.mediaPath = '附件/Social Post to Obsidian';
+laterMobileReplyBackground.stored.mediaPath = '附件/順筆';
 await laterMobileReplyBackground.context.handleSavePost(mobileThreeDayNotes[0], null);
 const earlierMobilePath = laterMobileReplyBackground.nativeMessages
   .find(message => message.action === 'write').path;
@@ -4486,6 +4519,147 @@ assert.deepEqual(
 );
 assert.match(crossPlatformYaml.content_fingerprint, /^sha256:[a-f0-9]{64}$/);
 
+// Exercise the real framed Ruby host with an isolated folder, including LANG=C.
+{
+  const root = mkdtempSync(join(tmpdir(), 'sp2o-lifecycle-'));
+  const folder = join(root, '測試資料夾');
+  const config = join(root, 'config');
+  mkdirSync(folder);
+  const nativeRequest = message => sendNativeHostMessage(message, config, { LANG: 'C', LC_ALL: 'C' });
+  try {
+    assert.equal(nativeRequest({ action: 'configure', folderPath: folder }).ok, true);
+    const app = loadBackground({}, { nativeRequest });
+    await new Promise(resolve => setImmediate(resolve));
+    const media = [{ url: 'https://pbs.twimg.com/media/good.jpg', alt: '隔離測試圖片' }];
+    await app.context.handleSavePost({ ...crossPlatformX, media }, null);
+    await app.context.handleSavePost({ ...crossPlatformThreads, media }, null);
+    const settings = await app.context.getStorageSettings();
+    const scope = app.context.dedupeScopeKey(settings);
+    const before = await app.context.scanFilePublished(settings);
+    assert.equal(before.records.length, 1, '跨平台保存後只有一篇');
+    assert.equal(before.records[0].sources.length, 2);
+    assert.equal(before.records[0].images.length, 1, '相同圖片只留一份');
+    const originalPath = before.records[0].ref.path;
+    assert.equal(await app.context.archiveOldSocialPosts(settings, '2026-09-01T00:00:00Z'), 1);
+    const after = await app.context.scanFilePublished(settings);
+    assert.equal(after.errors.length, 0);
+    assert.equal(after.records.length, 1);
+    const archived = after.records[0];
+    assert.match(archived.ref.path, /Archive\/發文\//);
+    assert.equal(existsSync(join(folder, originalPath)), false);
+    const markdown = readFileSync(join(folder, archived.ref.path), 'utf8');
+    assert.equal(parseYamlFrontmatter(markdown).sources.length, 2);
+    for (const image of archived.images) {
+      assert.equal(existsSync(join(folder, app.context.recordImagePath(archived, image))), true);
+    }
+    assert.equal(app.stored.contentDedupeIndex[scope][archived.fingerprint][0].ref.path, archived.ref.path);
+    assert.equal(app.stored.recentSaves[0].ref.path, archived.ref.path);
+    assert.equal(await app.context.archiveOldSocialPosts(settings, '2026-09-01T00:00:00Z'), 0);
+    assert.equal((await app.context.checkContentIndex()).issues.length, 0);
+    console.log('Isolated real Helper lifecycle passed: save → merge → archive → read-back; images intact; rerun moved 0.');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+// Index checks are read-only; repair requires the same scope, snapshot and revision.
+{
+  const app = loadBackground();
+  await new Promise(resolve => setImmediate(resolve));
+  await app.context.handleSavePost(crossPlatformX, null);
+  const settings = await app.context.getStorageSettings();
+  const scope = app.context.dedupeScopeKey(settings);
+  const fingerprint = await app.context.contentFingerprint(crossPlatformX);
+  const entry = app.stored.contentDedupeIndex[scope][fingerprint][0];
+  const from = entry.ref.path;
+  const to = from.replace('/2026-', '/Archive/發文/2026-');
+  const markdown = app.nativeFiles.get(from);
+  app.nativeFiles.delete(from);
+  app.setNativeFile(to, markdown);
+  app.setNativeNames([to.replace(settings.basePath + '/', '')]);
+  const snapshot = JSON.stringify(app.stored.contentDedupeIndex);
+  const preview = await app.context.checkContentIndex();
+  assert.equal(preview.issues.length, 1);
+  assert.equal(preview.issues[0].replacement.ref.path, to);
+  assert.equal(JSON.stringify(app.stored.contentDedupeIndex), snapshot, '檢查不可更新索引');
+  assert.equal((await app.context.getMaintenanceStatus()).indexCheck.scanId, preview.scanId,
+    '關閉 Popup 後能恢復預覽');
+  app.stored.storageProvider = 'obsidian-rest';
+  await assert.rejects(app.context.repairContentIndex(preview.scanId), /目的地/);
+  app.stored.storageProvider = 'markdown-folder';
+  app.setNativeFile(to, markdown + '\n手動補充');
+  assert.equal((await app.context.repairContentIndex(preview.scanId)).repaired, 0, '預覽後手改要略過');
+  const next = await app.context.checkContentIndex();
+  const messagesBefore = app.nativeMessages.length;
+  assert.equal((await app.context.repairContentIndex(next.scanId)).repaired, 1);
+  assert.equal(app.stored.contentDedupeIndex[scope][fingerprint][0].ref.path, to);
+  assert.equal(app.nativeMessages.slice(messagesBefore).some(message => ['write', 'remove'].includes(message.action)), false);
+  await assert.rejects(app.context.repairContentIndex(next.scanId), /已完成/);
+  assert.equal((await app.context.checkContentIndex()).issues.length, 0);
+  // Missing content remains indexed for manual investigation, never silently discarded.
+  app.nativeFiles.delete(to);
+  app.setNativeNames([]);
+  const missing = await app.context.checkContentIndex();
+  assert.equal(missing.issues[0].replacement, null);
+  assert.equal((await app.context.repairContentIndex(missing.scanId)).repaired, 0);
+  assert.equal(app.stored.contentDedupeIndex[scope][fingerprint].length, 1);
+  app.setNativeNames(['unreadable.md']);
+  await assert.rejects(app.context.checkContentIndex(), /掃描不完整/);
+  assert.equal(app.stored.contentDedupeIndex[scope][fingerprint].length, 1);
+}
+
+for (const provider of ['obsidian-rest', 'apple-notes']) {
+  const app = loadBackground({
+    storageProvider: provider,
+    appleNotesSettings: { accountId: 'account-local', folderId: 'folder-test' }
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  await app.context.handleSavePost(crossPlatformX, null);
+  const settings = await app.context.getStorageSettings();
+  const scope = app.context.dedupeScopeKey(settings);
+  const fingerprint = await app.context.contentFingerprint(crossPlatformX);
+  const entry = app.stored.contentDedupeIndex[scope][fingerprint][0];
+  const originalRef = { ...entry.ref };
+  // Simulate an obsolete reference while the destination retains the original note.
+  entry.ref = provider === 'apple-notes'
+    ? { ...entry.ref, noteId: 'missing-note' }
+    : { ...entry.ref, path: '個人創作/社群推文/missing.md' };
+  app.stored.contentDedupeIndex['unrelated-location'] = { [fingerprint]: [JSON.parse(JSON.stringify(entry))] };
+  const foreign = JSON.stringify(app.stored.contentDedupeIndex['unrelated-location']);
+  const callsBeforeStatus = app.nativeMessages.length;
+  await app.context.getMaintenanceStatus();
+  assert.equal(app.nativeMessages.length, callsBeforeStatus, '讀取背景狀態不得掃描 Notes');
+  const preview = await app.context.checkContentIndex();
+  assert.equal(preview.issues.length, 1, provider);
+  assert.equal(app.context.SP2OStorage.refKey(preview.issues[0].replacement.ref),
+    app.context.SP2OStorage.refKey(originalRef), provider);
+  assert.equal((await app.context.repairContentIndex(preview.scanId)).repaired, 1, provider);
+  assert.equal(JSON.stringify(app.stored.contentDedupeIndex['unrelated-location']), foreign);
+}
+
+{
+  const app = loadBackground();
+  await new Promise(resolve => setImmediate(resolve));
+  await app.context.handleSavePost(crossPlatformX, null);
+  const settings = await app.context.getStorageSettings();
+  const scope = app.context.dedupeScopeKey(settings);
+  const fingerprint = await app.context.contentFingerprint(crossPlatformX);
+  const entry = app.stored.contentDedupeIndex[scope][fingerprint][0];
+  const original = entry.ref.path;
+  const markdown = app.nativeFiles.get(original);
+  entry.ref.path = '個人創作/社群推文/missing.md';
+  app.setNativeFile('個人創作/社群推文/copy.md', markdown);
+  app.setNativeNames([original.split('/').at(-1), 'copy.md']);
+  const ambiguous = await app.context.checkContentIndex();
+  assert.equal(ambiguous.issues[0].replacement, null, '多筆相符不得猜測');
+  app.nativeFiles.delete('個人創作/社群推文/copy.md');
+  app.setNativeNames([original.split('/').at(-1)]);
+  const preview = await app.context.checkContentIndex();
+  app.stored.contentDedupeIndex[scope][fingerprint][0] = { ...entry, title: 'changed concurrently' };
+  assert.equal((await app.context.repairContentIndex(preview.scanId)).repaired, 0,
+    '檢查後索引變更不得被舊預覽覆寫');
+}
+
 const splitThreadFingerprint = await crossPlatformBackground.context.contentFingerprint({
   ...crossPlatformX,
   content: 'unused',
@@ -4550,9 +4724,54 @@ assert.equal(
   false,
   '掃描預覽不可修改目的地'
 );
+const partialScope = duplicateScanBackground.context.dedupeScopeKey(
+  await duplicateScanBackground.context.getStorageSettings()
+);
+duplicateScanBackground.stored.contentDedupeIndex[partialScope].unreadable = [{
+  ref: { provider: 'markdown-folder', path: '個人創作/社群推文/unreadable.md' },
+  sources: [], platforms: ['Twitter/X'], title: 'Unreadable indexed post'
+}];
+const indexBeforePartialScan = JSON.parse(JSON.stringify(duplicateScanBackground.stored.contentDedupeIndex));
+duplicateScanBackground.setNativeNames([
+  oldXPath.split('/').at(-1), oldThreadsPath.split('/').at(-1), 'unreadable.md'
+]);
+const partialScan = await duplicateScanBackground.context.scanDuplicatePosts();
+assert.deepEqual(JSON.parse(JSON.stringify(duplicateScanBackground.stored.contentDedupeIndex)),
+  indexBeforePartialScan, '部分掃描失敗必須保留原 contentDedupeIndex');
+const partialProvider = partialScan.providers.find(provider => provider.provider === 'markdown-folder');
+assert.equal(partialProvider.ok, false, '部分掃描不可回報完全成功');
+assert.equal(partialProvider.complete, false, 'provider 必須標示掃描不完整');
+assert.match(partialProvider.warnings.join('\n'), /unreadable/);
+assert.equal(partialScan.groups.length, 1, '部分掃描仍保留可用預覽');
+const restoredPartialScan = await duplicateScanBackground.context.getDuplicateScanSession();
+assert.deepEqual(restoredPartialScan.providers, partialScan.providers, '重開 Popup 必須保留不完整狀態及警告');
+assert.equal(restoredPartialScan.groups.length, 1);
+const duplicatePopup = vm.createContext({
+  document: { createElement: () => ({ append() {} }) },
+  duplicateResults: { textContent: '', children: [], appendChild(child) { this.children.push(child); } },
+  duplicateStatus: {}, duplicateScanBtn: {}, duplicateMergeBtn: {},
+  providerLabel: value => value,
+  platformDisplayName: value => value,
+  chrome: { runtime: { sendMessage: async () => restoredPartialScan } }
+});
+vm.runInContext(`let duplicateScanId = '';
+  ${popupScript.slice(popupScript.indexOf('function renderDuplicateResults('),
+    popupScript.indexOf('function maintenanceTime('))}`, duplicatePopup);
+await duplicatePopup.scanDuplicatePosts();
+assert.match(duplicatePopup.duplicateStatus.textContent, /掃描不完整/);
+assert.ok(duplicatePopup.duplicateResults.children.some(child =>
+  child.className === 'duplicate-provider-status error' && /掃描不完整/.test(child.textContent)));
+assert.ok(duplicatePopup.duplicateResults.children.some(child => /unreadable/.test(child.textContent)),
+  'Popup 必須以文字呈現讀取失敗原因');
+await duplicatePopup.restoreDuplicateScan();
+assert.match(duplicatePopup.duplicateStatus.textContent, /上次掃描不完整/);
+duplicateScanBackground.setNativeNames([oldXPath.split('/').at(-1), oldThreadsPath.split('/').at(-1)]);
+const completeScan = await duplicateScanBackground.context.scanDuplicatePosts();
+assert.equal(completeScan.providers[0].ok, true);
+assert.equal(completeScan.providers[0].complete, true);
 const mergePreview = await duplicateScanBackground.context.mergeDuplicatePosts(
-  scanPreview.scanId,
-  [scanPreview.groups[0].id]
+  completeScan.scanId,
+  [completeScan.groups[0].id]
 );
 assert.equal(mergePreview.ok, true);
 assert.equal(mergePreview.merged, 1);
@@ -4642,7 +4861,7 @@ const existingRestScanBackground = loadBackground({
     apiKey: 'test-key',
     port: 27123,
     basePath: '個人創作/社群推文',
-    mediaPath: '附件/Social Post to Obsidian'
+    mediaPath: '附件/順筆'
   }
 });
 existingRestScanBackground.setRestFile(oldXPath, existingRestScanBackground.context.generateMarkdown({
@@ -4702,9 +4921,9 @@ const imageMergeBackground = loadBackground();
 imageMergeBackground.stored.storageProvider = 'markdown-folder';
 const imageXPath = '個人創作/社群推文/2026-05-01_0900_圖片文章.md';
 const imageThreadsPath = '個人創作/社群推文/2026-05-02_0900_圖片文章.md';
-const xAsset = '附件/Social Post to Obsidian/2026-05-01_0900_圖片文章/image-01.jpg';
-const threadsAsset1 = '附件/Social Post to Obsidian/2026-05-02_0900_圖片文章/image-01.jpg';
-const threadsAsset2 = '附件/Social Post to Obsidian/2026-05-02_0900_圖片文章/image-02.jpg';
+const xAsset = '附件/順筆/2026-05-01_0900_圖片文章/image-01.jpg';
+const threadsAsset1 = '附件/順筆/2026-05-02_0900_圖片文章/image-01.jpg';
+const threadsAsset2 = '附件/順筆/2026-05-02_0900_圖片文章/image-02.jpg';
 imageMergeBackground.setNativeFile(xAsset, Buffer.from([1, 2, 3]));
 imageMergeBackground.setNativeFile(threadsAsset1, Buffer.from([1, 2, 3]));
 imageMergeBackground.setNativeFile(threadsAsset2, Buffer.from([9, 8, 7]));
@@ -4712,14 +4931,14 @@ imageMergeBackground.setNativeFile(imageXPath, imageMergeBackground.context.gene
   ...crossPlatformX,
   content: '圖片去重文章',
   timestamp: '2026-05-01T09:00:00+08:00'
-}, [{ path: '../../附件/Social Post to Obsidian/2026-05-01_0900_圖片文章/image-01.jpg', alt: 'X 圖片' }]));
+}, [{ path: '../../附件/順筆/2026-05-01_0900_圖片文章/image-01.jpg', alt: 'X 圖片' }]));
 imageMergeBackground.setNativeFile(imageThreadsPath, imageMergeBackground.context.generateMarkdown({
   ...crossPlatformThreads,
   content: '圖片去重文章',
   timestamp: '2026-05-02T09:00:00+08:00'
 }, [
-  { path: '../../附件/Social Post to Obsidian/2026-05-02_0900_圖片文章/image-01.jpg', alt: '相同圖片' },
-  { path: '../../附件/Social Post to Obsidian/2026-05-02_0900_圖片文章/image-02.jpg', alt: '不同圖片' }
+  { path: '../../附件/順筆/2026-05-02_0900_圖片文章/image-01.jpg', alt: '相同圖片' },
+  { path: '../../附件/順筆/2026-05-02_0900_圖片文章/image-02.jpg', alt: '不同圖片' }
 ]));
 imageMergeBackground.setNativeListing(
   [imageXPath.split('/').at(-1), imageThreadsPath.split('/').at(-1)],

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
-  <title id="title">Social Post to Obsidian</title>
-  <desc id="desc">A social post flowing into an archive</desc>
+  <title id="title">順筆</title>
+  <desc id="desc">A thought written on social media becomes a note</desc>
   <rect x="8" y="8" width="112" height="112" rx="29" fill="#25222B"/>
   <path d="M35 29h58a9 9 0 0 1 9 9v32a9 9 0 0 1-9 9H67L49 94V79H35a9 9 0 0 1-9-9V38a9 9 0 0 1 9-9Z" fill="#FFFDF9"/>
   <path d="M64 39v25m-11-11 11 11 11-11" fill="none" stroke="#6E56B3" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>

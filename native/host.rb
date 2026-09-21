@@ -21,11 +21,11 @@ require 'yaml'
 # character encodings，整批封存與掃描因此沉默失敗。必須在任何檔案操作前固定成 UTF-8。
 Encoding.default_external = Encoding::UTF_8
 
-HOST_VERSION = '1.9.2'
+HOST_VERSION = '1.10.0'
 MAX_MESSAGE_BYTES = 64 * 1024 * 1024
 APP_DIRECTORY = ENV.fetch(
   'SP2O_CONFIG_DIR',
-  File.join(Dir.home, 'Library', 'Application Support', 'Social Post to Obsidian')
+  File.join(Dir.home, 'Library', 'Application Support', 'sun-pit')
 )
 CONFIG_PATH = File.join(APP_DIRECTORY, 'config.json')
 

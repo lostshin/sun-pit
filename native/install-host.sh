@@ -33,10 +33,10 @@ if [[ "${extension_id}" != "${store_extension_id}" ]]; then
   extension_ids+=("${extension_id}")
 fi
 
-app_dir="${HOME}/Library/Application Support/Social Post to Obsidian"
+app_dir="${HOME}/Library/Application Support/sun-pit"
 manifest_dir="${HOME}/Library/Application Support/Google/Chrome/NativeMessagingHosts"
 host_path="${app_dir}/host.rb"
-manifest_path="${manifest_dir}/com.lostshin.social_post_to_obsidian.json"
+manifest_path="${manifest_dir}/com.lostshin.sun_pit.json"
 
 /bin/mkdir -p "${app_dir}" "${manifest_dir}"
 /usr/bin/install -m 755 "${script_dir}/host.rb" "${host_path}"
@@ -57,8 +57,8 @@ manifest_path="${manifest_dir}/com.lostshin.social_post_to_obsidian.json"
 /usr/bin/ruby -rjson -e '
   manifest_path, host_path, *extension_ids = ARGV
   manifest = {
-    name: "com.lostshin.social_post_to_obsidian",
-    description: "Local Vault writer for Social Post to Obsidian",
+    name: "com.lostshin.sun_pit",
+    description: "Local note writer for sun-pit",
     path: host_path,
     type: "stdio",
     allowed_origins: extension_ids.map { |id| "chrome-extension://#{id}/" }

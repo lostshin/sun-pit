@@ -21,7 +21,7 @@
 
     <text x="34" y="130" fill="#25222b" font-size="34" font-weight="840" letter-spacing="-1">發完就收好。</text>
     <text x="34" y="165" fill="#5f5867" font-size="16" font-weight="650">X・Threads → 自己的 Obsidian Vault</text>
-    <text x="34" y="217" fill="#302b36" font-size="15" font-weight="790">Social Post to Obsidian</text>
+    <text x="34" y="217" fill="#302b36" font-size="15" font-weight="790">順筆</text>
 
     <g transform="translate(299 205)">
       <rect width="107" height="37" rx="12" fill="#fffdf9" stroke="#dcd4ca"/>

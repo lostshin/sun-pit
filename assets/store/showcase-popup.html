@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=380, initial-scale=1">
-  <title>Social Post to Obsidian — Store Screenshot State</title>
+  <title>順筆 — Store Screenshot State</title>
   <style>
     html,
     body {
@@ -23,7 +23,7 @@
   </style>
 </head>
 <body>
-  <iframe id="popup" src="../../popup/popup.html" title="Social Post to Obsidian popup"></iframe>
+  <iframe id="popup"  title="順筆 popup"></iframe>
   <script>
     const frame = document.getElementById('popup');
 
@@ -46,11 +46,14 @@
 
     frame.addEventListener('load', () => {
       const doc = frame.contentDocument;
-      doc.getElementById('version').textContent = 'v2.4.0';
+      doc.getElementById('version').textContent = 'v2.19.1';
       doc.getElementById('connDot').className = 'dot ok';
       doc.getElementById('connText').textContent = '已連接：創作筆記';
       doc.getElementById('settingsPanel').open = false;
       doc.getElementById('vaultName').textContent = '創作筆記';
+      doc.getElementById('maintenanceDestination').textContent = '目前已生效：本機 Markdown 資料夾';
+      doc.getElementById('archiveStatus').textContent = '最近封存完成 · 移動 0 筆';
+      doc.getElementById('indexStatus').textContent = '尚未檢查目前目的地';
 
       const draftSection = doc.getElementById('draftSection');
       const draftList = doc.getElementById('draftList');
@@ -62,9 +65,14 @@
       const recentList = doc.getElementById('recentList');
       recentList.replaceChildren(
         activityItem(doc, '2026-07-19_1428_把貼文留在自己的知識庫.md', 'Twitter/X · 14:28'),
-        activityItem(doc, '2026-07-19_1356_三則串文的完整備份.md', 'Threads · 13:56'),
+        activityItem(doc, '2026-07-19_1356_從一則貼文延伸的想法.md', 'Threads · 13:56'),
         activityItem(doc, '2026-07-19_1120_今天整理出的產品想法.md', 'Twitter/X · 11:20')
       );
+    });
+    fetch('../../popup/popup.html').then(response => response.text()).then(html => {
+      const base = new URL('../../popup/popup.html', location.href).href;
+      frame.srcdoc = html.replace('<head>', `<head><base href="${base}">`)
+        .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
     });
   </script>
 </body>

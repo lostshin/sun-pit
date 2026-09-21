@@ -953,3 +953,37 @@ button:disabled {
     transform: none;
   }
 }
+
+.index-issues {
+  max-height: 180px;
+  overflow-y: auto;
+  padding-left: 20px;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+#archiveStatus {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+#maintenanceSection h3 {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+#maintenanceSection .activity-heading:not(:first-child) {
+  margin-top: 12px;
+}
+
+#maintenanceSection button {
+  border-radius: 7px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+#maintenanceSection button:disabled {
+  cursor: default;
+}

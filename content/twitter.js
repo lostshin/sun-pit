@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const LOG = '[Social Post to Obsidian]';
+  const LOG = '[順筆]';
   const EDITOR_SELECTOR = '[data-testid^="tweetTextarea_"][contenteditable="true"]';
 
   // 檢查是否是最終的發文按鈕

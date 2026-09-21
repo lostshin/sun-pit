@@ -1,6 +1,6 @@
-# iOS 捷徑：手機端補存
+# 順筆 iOS 捷徑：手機端補記
 
-手機 app 發的文攔截不到——擴充功能只在桌面瀏覽器裡跑。這支 iOS 捷徑是補救工具：把一則 X 貼文的連結丟給它，它會抓取內容並在 Vault 裡寫出與擴充功能格式一致的筆記。
+手機 app 發的文攔截不到——擴充功能只在桌面瀏覽器裡跑。這支 iOS 捷徑讓手機上的社群貼文也能成為筆記：把一則 X 貼文的連結丟給它，它會抓取內容並在 Vault 裡寫出與擴充功能格式一致的筆記。
 
 `build_shortcut.py` 產生 `.shortcut` binary plist 並簽名。捷徑本身不是手寫的 plist，改行為請改這支 Python，不要直接編輯產出的檔案。
 
@@ -9,7 +9,7 @@
 ```bash
 cd ios-shortcut
 cp config.example.json config.json    # 只需一次
-python3 build_shortcut.py             # 產出 build/存貼文到 Obsidian.shortcut（已簽名）
+python3 build_shortcut.py             # 產出 build/順筆・手機補記.shortcut（已簽名）
 ```
 
 `config.json` 與 `build/` 都在 `.gitignore` 裡：兩者都含**裝置專屬 ID**，不可進版控。
@@ -27,7 +27,7 @@ python3 build_shortcut.py             # 產出 build/存貼文到 Obsidian.short
 
 ## 安裝到 iPhone
 
-把 `build/存貼文到 Obsidian.shortcut` 用 AirDrop 或 iCloud Drive 傳到手機開啟匯入。捷徑註冊為分享工作表動作（`WFWorkflowTypes: ActionExtension`），也可從剪貼簿讀連結，所以輕點背面、Siri、捷徑首頁都能觸發。
+把 `build/順筆・手機補記.shortcut` 用 AirDrop 或 iCloud Drive 傳到手機開啟匯入。捷徑註冊為分享工作表動作（`WFWorkflowTypes: ActionExtension`），也可從剪貼簿讀連結，所以輕點背面、Siri、捷徑首頁都能觸發。
 
 沒有輸入或不是自己的貼文時**靜默結束**，不跳通知——自動化情境下每次都彈訊息太吵。
 

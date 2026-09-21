@@ -120,7 +120,7 @@
 
     const provider = resolveProvider(snapshot);
     const basePath = snapshot.basePath || '個人創作/社群推文';
-    const mediaPath = snapshot.mediaPath || '附件/Social Post to Obsidian';
+    const mediaPath = snapshot.mediaPath || '附件/順筆';
     const updates = {
       storageSchemaVersion: SCHEMA_VERSION,
       storageProvider: provider,

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Social Post to Obsidian",
-  "version": "2.17.3",
-  "description": "發佈 X 與 Threads 貼文後，自動將文字與圖片備份至 Markdown 資料夾、Obsidian 或 Apple 備忘錄",
+  "name": "順筆 sun-pit",
+  "version": "2.19.2",
+  "description": "社群，就是你的筆記本。在 X 與 Threads 寫下想法，發文後自動記進 Markdown 資料夾、Obsidian 或 Apple 備忘錄。",
   "permissions": [
     "storage",
     "notifications",
@@ -62,5 +62,6 @@
     "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  }
+  },
+  "short_name": "順筆"
 }

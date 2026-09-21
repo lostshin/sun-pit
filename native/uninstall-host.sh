@@ -17,8 +17,8 @@ case "${1:-}" in
     ;;
 esac
 
-app_dir="${HOME}/Library/Application Support/Social Post to Obsidian"
-manifest_path="${HOME}/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.lostshin.social_post_to_obsidian.json"
+app_dir="${HOME}/Library/Application Support/sun-pit"
+manifest_path="${HOME}/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.lostshin.sun_pit.json"
 host_path="${app_dir}/host.rb"
 config_path="${app_dir}/config.json"
 
@@ -28,7 +28,7 @@ if [[ "${purge_config}" == true ]]; then
 fi
 /bin/rmdir "${app_dir}" 2>/dev/null || true
 
-print "Removed the Social Post to Obsidian Native Helper.\n"
+print "Removed the sun-pit Native Helper.\n"
 if [[ "${purge_config}" == false && -f "${config_path}" ]]; then
   print "Kept Vault configuration: ${config_path}\n"
 fi

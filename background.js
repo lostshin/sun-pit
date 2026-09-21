@@ -2,7 +2,7 @@
 
 // 啟動時印出版本，方便在 SW console 確認載入的版本
 try {
-  console.log('[Social Post to Obsidian] background v' + chrome.runtime.getManifest().version + ' 已啟動');
+  console.log('[順筆] background v' + chrome.runtime.getManifest().version + ' 已啟動');
 } catch (e) { /* 測試環境略過 */ }
 
 // 共用設定邏輯與預設路徑（popup 亦載入同一份，見 shared/settings.js）
@@ -17,7 +17,7 @@ importScripts(
 // 監聽來自 content script 的訊息
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const tabId = sender.tab ? sender.tab.id : null;
-  console.log('[Social Post to Obsidian] Received:', message.type, message.data?.platform);
+  console.log('[順筆] Received:', message.type, message.data?.platform);
 
   switch (message.type) {
     case 'SAVE_DRAFT':
@@ -112,6 +112,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         (error) => sendResponse({ ok: false, error: error.message })
       );
       return true;
+    case 'GET_MAINTENANCE_STATUS':
+      getMaintenanceStatus().then(sendResponse, error => sendResponse({ ok: false, error: error.message }));
+      return true;
+    case 'CHECK_CONTENT_INDEX':
+      checkContentIndex().then(sendResponse, error => sendResponse({ ok: false, error: error.message }));
+      return true;
+    case 'REPAIR_CONTENT_INDEX':
+      repairContentIndex(message.scanId).then(sendResponse, error => sendResponse({ ok: false, error: error.message }));
+      return true;
     case 'SCAN_DUPLICATE_POSTS':
       scanDuplicatePosts().then(
         (response) => sendResponse(response),
@@ -157,8 +166,8 @@ const STORAGE_SETTING_KEYS = [
   'obsidianRestSettings',
   'appleNotesSettings'
 ];
-const NATIVE_HOST_NAME = 'com.lostshin.social_post_to_obsidian';
-const MIN_NATIVE_HOST_VERSION = '1.9.2';
+const NATIVE_HOST_NAME = 'com.lostshin.sun_pit';
+const MIN_NATIVE_HOST_VERSION = '1.10.0';
 const MAINTENANCE_ALARM = 'sp2o-vault-maintenance';
 const ARCHIVE_ALARM = 'sp2o-obsidian-archive';
 const LEGACY_ARCHIVE_ALARM = 'sp2o-weekly-archive';
@@ -567,7 +576,7 @@ async function rememberPublishedDraftSession(platform, sessionId, tabId) {
     });
   } catch (error) {
     // 記憶體 guard 仍有效；不能因輔助狀態寫入失敗，讓正式檔被誤報失敗並留下草稿。
-    console.log('[Social Post to Obsidian] Draft session persistence skipped:', error.message);
+    console.log('[順筆] Draft session persistence skipped:', error.message);
   }
 }
 
@@ -597,7 +606,7 @@ async function wasDraftSessionPublished(platform, sessionId, tabId) {
   try {
     stored = await chrome.storage.local.get(storageKey);
   } catch (error) {
-    console.log('[Social Post to Obsidian] Draft session lookup skipped:', error.message);
+    console.log('[順筆] Draft session lookup skipped:', error.message);
     return false;
   }
   const persisted = stored[storageKey];
@@ -661,7 +670,7 @@ async function cancelXBackfillScan(sender) {
   }
 
   await clearXBackfillJob(job, false);
-  console.log('[Social Post to Obsidian] 使用者開始撰寫，已暫停 X 背景補存掃描');
+  console.log('[順筆] 使用者開始撰寫，已暫停 X 背景補存掃描');
   return { ok: true, canceled: true };
 }
 
@@ -710,7 +719,7 @@ async function ensureXBackfillScan(author, sender) {
   };
   await chrome.storage.local.set({ [X_BACKFILL_JOB_KEY]: newJob });
   chrome.alarms.create(X_BACKFILL_TIMEOUT_ALARM, { when: Date.now() + X_BACKFILL_TIMEOUT_MS });
-  console.log('[Social Post to Obsidian] 已啟動 X 背景補存掃描');
+  console.log('[順筆] 已啟動 X 背景補存掃描');
   return { ok: true, scanTab: false, inProgress: true, opened: true };
 }
 
@@ -741,7 +750,7 @@ async function relayXBackfillResults(posts, sender) {
     posts: candidates
   });
   await clearXBackfillJob(job, delivered);
-  console.log('[Social Post to Obsidian] X 背景補存掃描完成:', candidates.length);
+  console.log('[順筆] X 背景補存掃描完成:', candidates.length);
   return { ok: true, relayed: delivered };
 }
 
@@ -912,45 +921,83 @@ async function archiveRestSocialPosts(settings, cutoff) {
   return { ok: true, moved, skipped };
 }
 
+function archiveStatusKey(settings) {
+  return `archiveStatus:${dedupeScopeKey(settings)}`;
+}
+
 async function archiveOldSocialPosts(settings, cutoff = new Date(Date.now() - ARCHIVE_AGE_MS).toISOString()) {
+  if (!getProvider(settings).capabilities.archive) return 0;
+  const key = archiveStatusKey(settings);
+  const stored = await chrome.storage.local.get(key);
+  const startedAt = new Date().toISOString();
+  const previous = stored[key] || {};
+  await chrome.storage.local.set({ [key]: { ...previous, state: 'running', startedAt, error: '' } });
+  try {
+    const result = await performArchive(settings, cutoff);
+    const finishedAt = new Date().toISOString();
+    await chrome.storage.local.set({ [key]: {
+      state: 'success', startedAt, finishedAt, lastSuccessAt: finishedAt, ...result, error: ''
+    } });
+    return result.moved;
+  } catch (error) {
+    await chrome.storage.local.set({ [key]: {
+      ...previous, state: 'error', startedAt, finishedAt: new Date().toISOString(), error: error.message
+    } });
+    throw error;
+  }
+}
+
+async function getMaintenanceStatus() {
+  const settings = await getStorageSettings();
+  const key = archiveStatusKey(settings);
+  const stored = await chrome.storage.local.get([key, 'contentIndexCheck']);
+  const alarm = await new Promise(resolve => chrome.alarms.get(ARCHIVE_ALARM, resolve));
+  return {
+    ok: true,
+    provider: settings.storageProvider,
+    scope: dedupeScopeKey(settings),
+    supportsArchive: getProvider(settings).capabilities.archive,
+    archive: stored[key] || null,
+    scheduledAt: alarm?.scheduledTime || null,
+    indexCheck: stored.contentIndexCheck?.scope === dedupeScopeKey(settings) ? stored.contentIndexCheck : null
+  };
+}
+
+async function performArchive(settings, cutoff) {
   const provider = getProvider(settings);
-  if (!provider.capabilities.archive) return 0;
   const response = await provider.archive(cutoff, settings);
   const moved = Array.isArray(response.moved) ? response.moved : [];
   if (!moved.length) {
     const skipped = Array.isArray(response.skipped) ? response.skipped.length : 0;
-    console.log(`[Social Post to Obsidian] Obsidian 封存檢查完成：移動 0 筆，略過 ${skipped} 筆`);
-    return 0;
+    console.log(`[順筆] Obsidian 封存檢查完成：移動 0 筆，略過 ${skipped} 筆`);
+    return { moved: 0, skipped };
   }
 
   const movedPaths = new Map(moved.map(item => [item.from, item.to]));
   const stored = await chrome.storage.local.get(['recentSaves', THREAD_CONTEXT_KEY]);
   const recentSaves = (stored.recentSaves || []).map((item) => (
-    movedPaths.has(item.ref?.path)
+    item.ref?.provider === settings.storageProvider && movedPaths.has(item.ref?.path)
       ? { ...item, ref: { ...item.ref, path: movedPaths.get(item.ref.path) } }
       : item
   ));
   const recentThreadContexts = (stored[THREAD_CONTEXT_KEY] || []).map((item) => (
-    movedPaths.has(item.ref?.path)
+    item.ref?.provider === settings.storageProvider && movedPaths.has(item.ref?.path)
       ? { ...item, ref: { ...item.ref, path: movedPaths.get(item.ref.path) } }
       : item
   ));
   await chrome.storage.local.set({ recentSaves, [THREAD_CONTEXT_KEY]: recentThreadContexts });
-  await mutateContentDedupeIndex((index) => Object.fromEntries(
-    Object.entries(index).map(([scope, fingerprints]) => [
-      scope,
-      Object.fromEntries(Object.entries(fingerprints || {}).map(([fingerprint, entries]) => [
-        fingerprint,
-        (entries || []).map((entry) => (
-          movedPaths.has(entry.ref?.path)
-            ? { ...entry, ref: { ...entry.ref, path: movedPaths.get(entry.ref.path) } }
-            : entry
-        ))
-      ]))
-    ])
-  ));
-  console.log('[Social Post to Obsidian] 已歸檔超過 7 天的社群貼文:', moved.length);
-  return moved.length;
+  const scope = dedupeScopeKey(settings);
+  await mutateContentDedupeIndex(index => ({
+    ...index,
+    [scope]: Object.fromEntries(Object.entries(index[scope] || {}).map(([fingerprint, entries]) => [
+      fingerprint,
+      (entries || []).map(entry => movedPaths.has(entry.ref?.path)
+        ? { ...entry, ref: { ...entry.ref, path: movedPaths.get(entry.ref.path) } }
+        : entry)
+    ]))
+  }));
+  console.log('[順筆] 已歸檔超過 7 天的社群貼文:', moved.length);
+  return { moved: moved.length, skipped: response.skipped?.length || 0 };
 }
 
 async function chooseNativeVault() {
@@ -973,14 +1020,14 @@ async function chooseNativeVault() {
 async function handleSaveDraft(data, tabId) {
   try {
     if (await wasDraftSessionPublished(data.platform, data.draftSessionId, tabId)) {
-      console.log('[Social Post to Obsidian] 忽略已發佈 session 的遲到草稿');
+      console.log('[順筆] 忽略已發佈 session 的遲到草稿');
       return;
     }
 
     // 發佈後才送達的舊草稿直接丟棄，避免已刪除的草稿檔又被寫回
     const publishedAt = lastPublishTimestamp[data.platform];
     if (publishedAt && data.timestamp <= publishedAt) {
-      console.log('[Social Post to Obsidian] 忽略發佈前的舊草稿');
+      console.log('[順筆] 忽略發佈前的舊草稿');
       return;
     }
 
@@ -991,7 +1038,7 @@ async function handleSaveDraft(data, tabId) {
     const ref = await provider.saveDraft(data, previous?.ref, settings);
     const filename = ref?.title || `${platformDisplayName(data.platform)} 草稿`;
 
-    console.log('[Social Post to Obsidian] Draft saved:', filename);
+    console.log('[順筆] Draft saved:', filename);
     sendDraftStatus(tabId, true, `草稿已暫存 ${formatDateTime(data.timestamp).slice(-5)}`);
 
     // 記錄草稿狀態供 popup 顯示（每平台一個 key，避免共用物件的讀寫競態）
@@ -1009,12 +1056,12 @@ async function handleSaveDraft(data, tabId) {
     // 草稿失敗不跳系統通知（打字中會很吵）；正式貼文有離線佇列保底
     if (isConnectionError(error) || error.isNativeHostError) {
       // 用 log 而非 warn：warn 會被收進擴充功能錯誤頁，暫時無法寫入是預期情況
-      console.log('[Social Post to Obsidian] Draft save skipped (Vault 無法寫入)');
+      console.log('[順筆] Draft save skipped (Vault 無法寫入)');
       sendDraftStatus(tabId, false, (error.isNativeHostError || error.isVaultWriteError)
         ? '儲存目的地尚未授權，草稿未暫存'
         : '儲存目的地未連線，草稿未暫存');
     } else {
-      console.error('[Social Post to Obsidian] Draft save failed:', error);
+      console.error('[順筆] Draft save failed:', error);
       sendDraftStatus(tabId, false, '草稿暫存失敗');
     }
   }
@@ -1069,16 +1116,16 @@ async function handlePublishDraft(data, tabId) {
         await chrome.storage.local.remove(`draftSnapshot_${data.platform}`);
         await chrome.storage.local.remove(draftStatusKey);
       } else if (!keepLocalNotesDraft) {
-        console.log('[Social Post to Obsidian] 保留另一個 composer session 的草稿');
+        console.log('[順筆] 保留另一個 composer session 的草稿');
       } else {
-        console.log('[Social Post to Obsidian] Apple 備忘錄尚未接受貼文，保留本機草稿快照');
+        console.log('[順筆] Apple 備忘錄尚未接受貼文，保留本機草稿快照');
       }
     } catch (error) {
-      console.log('[Social Post to Obsidian] Draft cleanup failed:', error.message);
+      console.log('[順筆] Draft cleanup failed:', error.message);
     }
     return true;
   } catch (error) {
-    console.error('[Social Post to Obsidian] Publish failed:', error);
+    console.error('[順筆] Publish failed:', error);
     notifyResult(tabId, false, error.message);
     return false;
   }
@@ -1126,7 +1173,7 @@ async function saveWithQueueFallback(fullPath, filename, data, settings, tabId, 
     // 退回一般建檔流程另存新檔，並在新筆記標註母筆記，讓使用者能手動接回。
     if (!options.appendExisting || provider.id === SP2OStorage.PROVIDERS.APPLE_NOTES) throw error;
 
-    console.log('[Social Post to Obsidian] Merge failed, saving separately:', error.message);
+    console.log('[順筆] Merge failed, saving separately:', error.message);
     mergeFailed = true;
     merged = false;
     const location = publishedPostLocation(data, settings.basePath || DEFAULT_BASE_PATH);
@@ -1188,7 +1235,7 @@ async function saveWithQueueFallback(fullPath, filename, data, settings, tabId, 
   const action = mergeFailed ? '已另存新檔（無法合併）' : merged ? '已合併' : '已儲存';
   // 自動補存改由分頁端統一回報總數，這裡不逐則跳 toast；失敗才通知
   if (!silent) notifyResult(tabId, true, `${action}${mediaText}: ${filename}`);
-  console.log('[Social Post to Obsidian] Published:', SP2OStorage.refKey(savedRef));
+  console.log('[順筆] Published:', SP2OStorage.refKey(savedRef));
   return { queued: false, ref: savedRef };
 }
 
@@ -1244,7 +1291,7 @@ async function savePostMedia(data, fullPath, filename, settings, offset) {
     } catch (error) {
       // Propagate Vault errors for queue handling, but keep the note when a remote image fails.
       if (error.isObsidianApiError || error.isVaultWriteError) throw error;
-      console.log('[Social Post to Obsidian] Media download skipped:', index + 1, error.message);
+      console.log('[順筆] Media download skipped:', index + 1, error.message);
       return { url: item.url, alt: item.alt || `圖片 ${offset + index + 1}`, failed: true };
     }
   }));
@@ -1286,11 +1333,11 @@ async function cleanupEmptyMediaFolders(settings) {
     });
     const removed = response.removed || 0;
     if (removed > 0) {
-      console.log('[Social Post to Obsidian] Removed empty media folders:', removed);
+      console.log('[順筆] Removed empty media folders:', removed);
     }
     return removed;
   } catch (error) {
-    console.log('[Social Post to Obsidian] Media folder cleanup skipped:', error.message);
+    console.log('[順筆] Media folder cleanup skipped:', error.message);
     return 0;
   }
 }
@@ -1346,13 +1393,13 @@ async function deleteRestVaultFile(filepath, apiKey, port, strict = false) {
     // 404（草稿不存在）也沒關係，其他錯誤記下來
     if (!response.ok && response.status !== 404) {
       if (strict) throw new Error(`刪除 Vault 檔案失敗：HTTP ${response.status}`);
-      console.warn('[Social Post to Obsidian] Vault file delete failed:', response.status);
+      console.warn('[順筆] Vault file delete failed:', response.status);
     } else {
-      console.log('[Social Post to Obsidian] Vault file deleted:', filepath);
+      console.log('[順筆] Vault file deleted:', filepath);
     }
   } catch (error) {
     if (strict) throw error;
-    console.log('[Social Post to Obsidian] Vault file delete skipped:', error.message);
+    console.log('[順筆] Vault file delete skipped:', error.message);
   }
 }
 
@@ -1360,10 +1407,10 @@ async function deleteVaultFile(filepath, settings, strict = false) {
   if (resolveStorageMode(settings) === 'native') {
     try {
       await sendNativeRequest({ action: 'remove', path: filepath });
-      console.log('[Social Post to Obsidian] Vault file deleted:', filepath);
+      console.log('[順筆] Vault file deleted:', filepath);
     } catch (error) {
       if (strict) throw error;
-      console.log('[Social Post to Obsidian] Vault file delete skipped:', error.message);
+      console.log('[順筆] Vault file delete skipped:', error.message);
     }
     return;
   }
@@ -1475,7 +1522,7 @@ async function findMissingPosts(posts) {
       if (!found) missing.push(data.url);
     } catch (error) {
       // 查不到 Vault 狀態時視為已存在：寧可漏提示，也不要因為誤判而重複建檔
-      console.log('[Social Post to Obsidian] Backfill check failed:', error.message);
+      console.log('[順筆] Backfill check failed:', error.message);
     }
   }
 
@@ -1563,7 +1610,7 @@ async function vaultNoteIndex(basePath, settings) {
     }
     return { names, entries: null };
   } catch (error) {
-    console.log('[Social Post to Obsidian] Vault listing unavailable:', error.message);
+    console.log('[順筆] Vault listing unavailable:', error.message);
     return null;
   }
 }
@@ -1698,6 +1745,117 @@ function duplicateGroupsForRecords(provider, records) {
   return groups;
 }
 
+let indexMaintenanceTask = null;
+
+async function withIndexMaintenance(task) {
+  if (indexMaintenanceTask) throw new Error('索引檢查或修復正在執行，請稍後再試');
+  indexMaintenanceTask = task();
+  try {
+    return await indexMaintenanceTask;
+  } finally {
+    indexMaintenanceTask = null;
+  }
+}
+
+function indexRecordMatches(record, fingerprint, entry) {
+  return record.fingerprint === fingerprint && entry.sources?.length > 0
+    && entry.sources.every(source => record.sources.some(item => item.externalKey === source.externalKey));
+}
+
+async function inspectContentIndex(settings) {
+  const scope = dedupeScopeKey(settings);
+  const stored = await chrome.storage.local.get(CONTENT_DEDUPE_INDEX_KEY);
+  const snapshot = stored[CONTENT_DEDUPE_INDEX_KEY]?.[scope] || {};
+  if (!Object.values(snapshot).some(entries => entries.length)) return { checked: 0, issues: [] };
+  const provider = getProvider(settings);
+  const result = await provider.scanPublished(settings);
+  if (result.errors?.length) throw new Error(`掃描不完整，未修復索引：${result.errors.join('；')}`);
+  const issues = [];
+  let checked = 0;
+  for (const [fingerprint, entries] of Object.entries(snapshot)) {
+    for (const entry of entries) {
+      checked++;
+      const matches = result.records.filter(record => indexRecordMatches(record, fingerprint, entry));
+      if (matches.some(record => SP2OStorage.refKey(record.ref) === SP2OStorage.refKey(entry.ref))) continue;
+      const exists = await provider.exists(entry.ref, settings);
+      const candidate = !exists && matches.length === 1 ? matches[0] : null;
+      issues.push({
+        fingerprint,
+        entry,
+        replacement: candidate ? {
+          ...entry, ref: { ...entry.ref, ...candidate.ref }, title: candidate.title,
+          createdAt: candidate.createdAt, platforms: candidate.platforms, sources: candidate.sources
+        } : null,
+        revision: candidate?.revision || '',
+        reason: exists ? '原位置仍存在，但內容或來源已變更'
+          : matches.length > 1 ? '找到多個相符位置，需人工確認'
+            : candidate ? '找到相同內容與來源的新位置' : '找不到相符內容，保留原索引'
+      });
+    }
+  }
+  return { checked, issues };
+}
+
+async function checkContentIndex() {
+  return withIndexMaintenance(async () => {
+    const settings = await getStorageSettings();
+    const result = await inspectContentIndex(settings);
+    const session = {
+      scanId: crypto.randomUUID(), scope: dedupeScopeKey(settings),
+      checkedAt: new Date().toISOString(), ...result
+    };
+    await chrome.storage.local.set({ contentIndexCheck: session });
+    return { ok: true, ...session };
+  });
+}
+
+async function repairContentIndex(scanId) {
+  return withIndexMaintenance(async () => {
+    const stored = await chrome.storage.local.get('contentIndexCheck');
+    const session = stored.contentIndexCheck;
+    const settings = await getStorageSettings();
+    if (!session || session.scanId !== scanId || session.scope !== dedupeScopeKey(settings)) {
+      throw new Error('目的地或檢查結果已變更，請重新檢查索引');
+    }
+    if (session.repairedAt) throw new Error('這次修復已完成，請重新檢查索引');
+    const fresh = await inspectContentIndex(settings);
+    if (dedupeScopeKey(await getStorageSettings()) !== session.scope) {
+      throw new Error('目的地已變更，請重新檢查索引');
+    }
+    const proposals = session.issues.filter(issue => issue.replacement);
+    const verified = proposals.filter(issue => fresh.issues.some(current =>
+      current.fingerprint === issue.fingerprint && current.replacement
+      && JSON.stringify(current.entry) === JSON.stringify(issue.entry)
+      && JSON.stringify(current.replacement) === JSON.stringify(issue.replacement)
+      && current.revision === issue.revision
+    ));
+    let repaired = 0;
+    const applied = [];
+    await mutateContentDedupeIndex(index => {
+      const scoped = { ...(index[session.scope] || {}) };
+      for (const issue of verified) {
+        scoped[issue.fingerprint] = (scoped[issue.fingerprint] || []).map(entry => {
+          if (JSON.stringify(entry) !== JSON.stringify(issue.entry)) return entry;
+          repaired++;
+          applied.push(issue);
+          return issue.replacement;
+        });
+      }
+      return { ...index, [session.scope]: scoped };
+    });
+    const readBack = await chrome.storage.local.get(CONTENT_DEDUPE_INDEX_KEY);
+    for (const issue of applied) {
+      if (!readBack[CONTENT_DEDUPE_INDEX_KEY]?.[session.scope]?.[issue.fingerprint]?.some(entry =>
+        JSON.stringify(entry) === JSON.stringify(issue.replacement))) {
+        throw new Error('索引寫入後驗證失敗，請重新檢查');
+      }
+    }
+    const result = { ...session, repairedAt: new Date().toISOString(), repaired, skipped: proposals.length - repaired };
+    await chrome.storage.local.set({ contentIndexCheck: result });
+    return { ok: true, ...result };
+  });
+}
+
 async function replaceDedupeScopeIndex(settings, records) {
   const scoped = {};
   for (const record of records) {
@@ -1758,10 +1916,12 @@ async function scanDuplicatePosts() {
       const result = await getProvider(settings).scanPublished(settings);
       const providerGroups = duplicateGroupsForRecords(providerId, result.records);
       groups.push(...providerGroups);
-      await replaceDedupeScopeIndex(settings, result.records);
+      const complete = result.errors.length === 0;
+      if (complete) await replaceDedupeScopeIndex(settings, result.records);
       providers.push({
         provider: providerId,
-        ok: true,
+        ok: complete,
+        complete,
         scanned: result.records.length,
         groups: providerGroups.length,
         warnings: result.errors
@@ -2077,7 +2237,7 @@ async function handleSavePost(data, tabId, silent = false) {
     });
     return { ok: true };
   } catch (error) {
-    console.error('[Social Post to Obsidian] Save failed:', error);
+    console.error('[順筆] Save failed:', error);
     notifyResult(tabId, false, error.message, silent);
     return { ok: false, error: error.message };
   }
@@ -2101,7 +2261,7 @@ async function enqueueOffline(item) {
   // 上限 50 筆，避免無限成長
   await chrome.storage.local.set({ [QUEUE_KEY]: queue.slice(-50) });
   chrome.alarms.create(RETRY_ALARM, { periodInMinutes: 1 });
-  console.log('[Social Post to Obsidian] Queued for retry:', item.filename);
+  console.log('[順筆] Queued for retry:', item.filename);
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
@@ -2113,7 +2273,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
       const job = stored[X_BACKFILL_JOB_KEY];
       if (!job) return;
       await clearXBackfillJob(job, false);
-      console.log('[Social Post to Obsidian] X 背景補存掃描逾時，已關閉暫存分頁');
+      console.log('[順筆] X 背景補存掃描逾時，已關閉暫存分頁');
     });
   } else if (alarm.name === MAINTENANCE_ALARM) {
     enqueue('vault-maintenance', async () => {
@@ -2134,7 +2294,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
       try {
         await archiveOldSocialPosts(settings);
       } catch (error) {
-        console.log('[Social Post to Obsidian] Obsidian 封存暫時無法執行:', error.message);
+        console.log('[順筆] Obsidian 封存暫時無法執行:', error.message);
       }
     });
   }
@@ -2235,7 +2395,7 @@ ensureStorageSchema().then(async () => {
   });
   await startNativeMaintenance();
 }).catch((error) => {
-  console.log('[Social Post to Obsidian] Native Helper not ready:', error.message);
+  console.log('[順筆] Native Helper not ready:', error.message);
 });
 
 // 記錄最近儲存（popup 顯示用，保留 5 筆）
@@ -2887,7 +3047,7 @@ async function prepareCrossPlatformPost(data, settings, fingerprint) {
     } catch (error) {
       if (isConnectionError(error)) throw error;
       staleRefs.push(candidate.ref);
-      console.log('[Social Post to Obsidian] 去重索引項目已失效:', error.message);
+      console.log('[順筆] 去重索引項目已失效:', error.message);
     }
   }
   if (staleRefs.length) await removeContentDedupeRefs(staleRefs);
@@ -3138,7 +3298,7 @@ async function notesAttachments(data) {
       };
     } catch (error) {
       failedMedia++;
-      console.log('[Social Post to Obsidian] Notes attachment skipped:', index + 1, error.message);
+      console.log('[順筆] Notes attachment skipped:', index + 1, error.message);
     }
   }));
   return { attachments: attachments.filter(Boolean), failedMedia };

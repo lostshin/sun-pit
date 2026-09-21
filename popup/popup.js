@@ -35,6 +35,16 @@ const duplicateMergeBtn = document.getElementById('duplicateMergeBtn');
 const duplicateStatus = document.getElementById('duplicateStatus');
 const duplicateResults = document.getElementById('duplicateResults');
 
+const maintenanceDestination = document.getElementById('maintenanceDestination');
+const archiveStatus = document.getElementById('archiveStatus');
+const indexStatus = document.getElementById('indexStatus');
+const indexIssues = document.getElementById('indexIssues');
+const indexCheckBtn = document.getElementById('indexCheckBtn');
+const indexRepairBtn = document.getElementById('indexRepairBtn');
+let maintenanceRequestId = 0;
+let indexCheckSession = null;
+let indexActionPending = false;
+
 let actionStatusTimer;
 let activePreviewAnchor;
 let loadedSettings = {};
@@ -556,8 +566,14 @@ function renderDuplicateResults(response) {
     status.className = provider.ok ? 'duplicate-provider-status' : 'duplicate-provider-status error';
     status.textContent = provider.ok
       ? `${providerLabel(provider.provider)} · 找到 ${provider.groups || 0} 組`
-      : `${providerLabel(provider.provider)} · ${provider.error || '掃描失敗'}`;
+      : `${providerLabel(provider.provider)} · ${provider.complete === false ? '掃描不完整，已保留原索引' : provider.error || '掃描失敗'}`;
     duplicateResults.appendChild(status);
+    for (const warning of provider.warnings || []) {
+      const detail = document.createElement('p');
+      detail.className = 'duplicate-provider-status error';
+      detail.textContent = warning;
+      duplicateResults.appendChild(detail);
+    }
   }
   for (const group of response.groups || []) {
     const label = document.createElement('label');
@@ -592,7 +608,9 @@ async function scanDuplicatePosts() {
     const response = await chrome.runtime.sendMessage({ type: 'SCAN_DUPLICATE_POSTS' });
     if (!response?.ok) throw new Error(response?.error || '掃描失敗');
     renderDuplicateResults(response);
-    duplicateStatus.textContent = response.groups?.length
+    duplicateStatus.textContent = response.providers.some(provider => !provider.ok)
+      ? '掃描不完整，以下僅為已讀取的結果；請查看目的地錯誤'
+      : response.groups?.length
       ? `找到 ${response.groups.length} 組跨平台重複文章`
       : '沒有找到可安全合併的跨平台重複文章';
   } catch (error) {
@@ -633,11 +651,96 @@ async function restoreDuplicateScan() {
     const response = await chrome.runtime.sendMessage({ type: 'GET_DUPLICATE_SCAN_SESSION' });
     if (!response?.ok || !response.scanId) return;
     renderDuplicateResults(response);
-    duplicateStatus.textContent = response.groups?.length
+    duplicateStatus.textContent = response.providers.some(provider => !provider.ok)
+      ? '上次掃描不完整，以下僅為已讀取的結果；請查看目的地錯誤'
+      : response.groups?.length
       ? `上次掃描找到 ${response.groups.length} 組；合併前仍會重新驗證`
       : '上次掃描沒有找到可安全合併的文章';
   } catch {
     // 掃描結果只是維護工具，不影響主要存檔功能。
+  }
+}
+
+function maintenanceTime(value) {
+  return value ? new Date(value).toLocaleString('zh-TW', { hour12: false }) : '尚無紀錄';
+}
+
+function renderIndexCheck(session) {
+  indexCheckSession = session;
+  indexIssues.textContent = '';
+  indexIssues.hidden = !session?.issues?.length;
+  indexRepairBtn.hidden = !session || !!session.repairedAt || !session.issues.some(issue => issue.replacement);
+  if (!session) {
+    indexStatus.textContent = '尚未檢查目前目的地';
+    return;
+  }
+  const repairable = session.issues.filter(issue => issue.replacement).length;
+  indexStatus.textContent = session.repairedAt
+    ? `已修復 ${session.repaired} 筆；略過 ${session.skipped} 筆；需人工確認 ${session.issues.length - repairable} 筆。可重新檢查確認結果。`
+    : `${maintenanceTime(session.checkedAt)} · 已檢查 ${session.checked} 筆；可修復 ${repairable} 筆，需人工確認 ${session.issues.length - repairable} 筆`;
+  for (const issue of session.issues) {
+    const item = document.createElement('li');
+    const original = issue.entry.ref.path || issue.entry.ref.title || issue.entry.ref.noteId;
+    const target = issue.replacement?.ref;
+    item.textContent = target
+      ? `${original} → ${target.path || target.title || target.noteId}`
+      : `${original} · ${issue.reason}`;
+    indexIssues.appendChild(item);
+  }
+}
+
+async function renderMaintenance() {
+  const requestId = ++maintenanceRequestId;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'GET_MAINTENANCE_STATUS' });
+    if (requestId !== maintenanceRequestId) return;
+    if (!response?.ok) throw new Error(response?.error || '背景程序沒有回應');
+    maintenanceDestination.textContent = `目前已生效：${providerLabel(response.provider)}`;
+    const state = response.archive;
+    if (!response.supportsArchive) {
+      archiveStatus.textContent = 'Apple 備忘錄不使用七日封存';
+    } else {
+      const schedule = response.scheduledAt
+        ? `下次預定：${maintenanceTime(response.scheduledAt)}`
+        : '尚無封存排程時間；可儲存設定重新建立排程';
+      const result = state?.state === 'success'
+        ? `${maintenanceTime(state.finishedAt)} · 封存 ${state.moved} 筆，略過 ${state.skipped} 筆`
+        : state?.state === 'error'
+          ? `封存失敗：${state.error}。最後成功：${maintenanceTime(state.lastSuccessAt)}`
+          : state?.state === 'running'
+            ? `${maintenanceTime(state.startedAt)} 開始封存，尚無完成紀錄；可能執行中或已中斷`
+            : '尚無封存執行紀錄';
+      archiveStatus.textContent = `${result}。${schedule}`;
+    }
+    if (!indexActionPending) renderIndexCheck(response.indexCheck);
+  } catch (error) {
+    if (requestId === maintenanceRequestId) archiveStatus.textContent = `無法讀取背景狀態：${error.message}`;
+  }
+}
+
+async function runIndexAction(repair = false) {
+  if (indexActionPending) return;
+  const scanId = indexCheckSession?.scanId;
+  if (repair && (!scanId || !window.confirm('確認修復預覽中可唯一比對的索引？筆記內容不會改動，檢查後有變更的項目會略過。'))) return;
+  indexActionPending = true;
+  indexCheckBtn.disabled = true;
+  indexRepairBtn.disabled = true;
+  const requestId = ++maintenanceRequestId;
+  indexStatus.textContent = repair ? '正在重新驗證並修復索引…' : '正在唯讀檢查目前目的地…';
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: repair ? 'REPAIR_CONTENT_INDEX' : 'CHECK_CONTENT_INDEX', scanId
+    });
+    if (requestId !== maintenanceRequestId) return;
+    if (!response?.ok) throw new Error(response?.error || '背景程序沒有回應');
+    renderIndexCheck(response);
+  } catch (error) {
+    if (requestId === maintenanceRequestId) indexStatus.textContent = `索引${repair ? '修復' : '檢查'}失敗：${error.message}`;
+  } finally {
+    indexActionPending = false;
+    indexCheckBtn.disabled = false;
+    indexRepairBtn.disabled = false;
+    if (requestId !== maintenanceRequestId) void renderMaintenance();
   }
 }
 
@@ -656,10 +759,13 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (draftsChanged) renderDrafts();
   if (changes.recentSaves && !changes.storageProvider) renderRecent();
   if (changes.offlineQueue) renderQueueInfo();
+  if (Object.keys(changes).some(key => key.startsWith('archiveStatus:'))
+    || (changes.contentIndexCheck && !indexActionPending)) void renderMaintenance();
   if (changes.storageProvider || changes.markdownFolderSettings || changes.appleNotesSettings || changes.obsidianRestSettings) {
     for (const key of ['storageProvider', 'markdownFolderSettings', 'appleNotesSettings', 'obsidianRestSettings']) {
       if (changes[key]) loadedSettings[key] = changes[key].newValue;
     }
+    void renderMaintenance();
     if (changes.storageProvider) {
       hidePreview();
       void renderRecent();
@@ -678,6 +784,8 @@ toggleApiKey.addEventListener('click', toggleApiKeyVisibility);
 chooseFolderBtn.addEventListener('click', chooseFolder);
 refreshNotesBtn.addEventListener('click', () => loadNotesLocations(selectedNotesLocation()));
 clearDraftsBtn.addEventListener('click', clearAutoDrafts);
+indexCheckBtn.addEventListener('click', () => runIndexAction());
+indexRepairBtn.addEventListener('click', () => runIndexAction(true));
 duplicateScanBtn.addEventListener('click', scanDuplicatePosts);
 duplicateMergeBtn.addEventListener('click', mergeDuplicatePosts);
 storageProviderSelect.addEventListener('change', () => {
@@ -701,6 +809,7 @@ async function initialize() {
   await loadSettings();
   renderStoredConnectionStatus();
   await Promise.all([renderQueueInfo(), renderDrafts(), renderRecent()]);
+  void renderMaintenance();
   void restoreDuplicateScan();
   void syncStorageActivity();
   if (resolveStorageProvider(loadedSettings) !== STORAGE_PROVIDERS.APPLE_NOTES) {

@@ -1,7 +1,7 @@
 // 共用設定與常數：background（importScripts）與 popup（<script>）載入同一份，
 // 避免兩處各自維護一份判斷邏輯而彼此 drift。
 const DEFAULT_BASE_PATH = '個人創作/社群推文';
-const DEFAULT_MEDIA_PATH = '附件/Social Post to Obsidian';
+const DEFAULT_MEDIA_PATH = '附件/順筆';
 
 const STORAGE_PROVIDERS = Object.freeze({
   MARKDOWN_FOLDER: 'markdown-folder',

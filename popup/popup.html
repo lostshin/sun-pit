@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Social Post to Obsidian</title>
+  <title>順筆 sun-pit</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
@@ -11,8 +11,8 @@
     <header class="app-header">
       <img class="brand-mark" src="../icons/logo.svg" alt="">
       <div class="brand-copy">
-        <h1>Social Post</h1>
-        <p>to Obsidian <span id="version" class="version"></span></p>
+        <h1>順筆</h1>
+        <p>sun-pit <span id="version" class="version"></span></p>
       </div>
       <span class="platform-badge">X · Threads</span>
     </header>
@@ -63,7 +63,7 @@
             <div id="nativeSetupHelp" class="native-setup-help" hidden>
               <p id="nativeSetupMessage" class="native-setup-title"></p>
               <p id="nativeSetupHint"></p>
-              <a href="https://github.com/lostshin/social-post-to-obsidian/blob/main/INSTALL.md" target="_blank" rel="noreferrer">開啟 Helper 安裝說明 ↗</a>
+              <a href="https://github.com/lostshin/sun-pit/blob/main/INSTALL.md" target="_blank" rel="noreferrer">開啟 Helper 安裝說明 ↗</a>
             </div>
             <small>可選任何可寫資料夾；若含 <code>.obsidian</code>，開啟時會使用 Obsidian</small>
           </div>
@@ -114,7 +114,7 @@
 
               <div class="form-group">
                 <label for="mediaPath">圖片儲存路徑</label>
-                <input type="text" id="mediaPath" value="附件/Social Post to Obsidian" placeholder="附件資料夾路徑" spellcheck="false">
+                <input type="text" id="mediaPath" value="附件/順筆" placeholder="附件資料夾路徑" spellcheck="false">
                 <small>相對於所選根資料夾</small>
               </div>
             </div>
@@ -148,6 +148,22 @@
         <ul id="recentList" class="activity-list"></ul>
       </section>
 
+      <section id="maintenanceSection" class="activity-section" aria-labelledby="maintenanceTitle">
+        <div class="activity-heading">
+          <h2 id="maintenanceTitle">背景作業</h2>
+        </div>
+        <p id="maintenanceDestination" class="duplicate-description"></p>
+        <p id="archiveStatus" class="duplicate-status" role="status" aria-live="polite"></p>
+        <div class="activity-heading">
+          <h3>索引檢查</h3>
+          <button type="button" id="indexCheckBtn" class="secondary compact-button">檢查目前目的地</button>
+        </div>
+        <p class="duplicate-description">先列出失效位置，確認後只修復能唯一比對的索引；不修改筆記。</p>
+        <p id="indexStatus" class="duplicate-status" role="status" aria-live="polite"></p>
+        <ul id="indexIssues" class="index-issues" hidden></ul>
+        <button type="button" id="indexRepairBtn" class="primary duplicate-merge-button" hidden>確認修復索引</button>
+      </section>
+
       <section id="duplicateSection" class="activity-section duplicate-section" aria-labelledby="duplicateTitle">
         <div class="activity-heading">
           <div>
@@ -164,8 +180,8 @@
 
     <footer class="app-footer">
       <span class="footer-dot" aria-hidden="true"></span>
-      <span>發佈後自動備份至你選擇的目的地</span>
-      <a href="https://github.com/lostshin/social-post-to-obsidian/blob/main/PRIVACY.md" target="_blank" rel="noreferrer">隱私</a>
+      <span>社群，就是你的筆記本。</span>
+      <a href="https://github.com/lostshin/sun-pit/blob/main/PRIVACY.md" target="_blank" rel="noreferrer">隱私</a>
     </footer>
   </div>
 

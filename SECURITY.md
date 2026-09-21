@@ -6,7 +6,7 @@
 
 ## 私下回報漏洞
 
-請使用 GitHub 的 [Private vulnerability reporting](https://github.com/lostshin/social-post-to-obsidian/security/advisories/new) 回報安全漏洞，不要建立公開 issue。
+請使用 GitHub 的 [Private vulnerability reporting](https://github.com/lostshin/sun-pit/security/advisories/new) 回報安全漏洞，不要建立公開 issue。
 
 回報時請提供：
 

@@ -1,45 +1,44 @@
 <p align="center">
-  <img src="icons/logo.svg" width="88" height="88" alt="Social Post to Obsidian logo">
+  <img src="icons/logo.svg" width="88" height="88" alt="sun-pit logo">
 </p>
 
-<h1 align="center">Social Post to Obsidian</h1>
+<h1 align="center">sun-pit · 順筆</h1>
 
 <p align="center">
   <a href="README.md">繁體中文</a> · <strong>English</strong>
 </p>
 
 <p align="center">
-  Turn X and Threads into your writing inbox. Publish once to a Markdown folder, Obsidian, or Apple Notes.
+  <strong>Your social feed is your notebook.</strong><br>
+  Write on X and Threads. Your thoughts become notes as you post.
 </p>
 
 <p align="center">
-  <a href="https://chromewebstore.google.com/detail/social-post-to-obsidian/jdfempgjnmdlokacfjmnipihhghcnomb"><img alt="Chrome Web Store" src="https://img.shields.io/badge/Chrome_Web_Store-Install-4285F4?logo=googlechrome&logoColor=white"></a>
-  <a href="https://github.com/lostshin/social-post-to-obsidian/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/lostshin/social-post-to-obsidian?style=flat"></a>
-  <a href="https://github.com/lostshin/social-post-to-obsidian/actions/workflows/validate.yml"><img alt="Validate Extension" src="https://github.com/lostshin/social-post-to-obsidian/actions/workflows/validate.yml/badge.svg"></a>
+  <a href="https://chromewebstore.google.com/detail/sun-pit/jdfempgjnmdlokacfjmnipihhghcnomb"><img alt="Chrome Web Store" src="https://img.shields.io/badge/Chrome_Web_Store-Install-4285F4?logo=googlechrome&logoColor=white"></a>
+  <a href="https://github.com/lostshin/sun-pit/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/lostshin/sun-pit?style=flat"></a>
+  <a href="https://github.com/lostshin/sun-pit/actions/workflows/validate.yml"><img alt="Validate Extension" src="https://github.com/lostshin/sun-pit/actions/workflows/validate.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-6E56B3.svg"></a>
 </p>
 
-![Social Post to Obsidian workflow demo](assets/demo.gif)
+![sun-pit workflow demo](assets/demo.gif)
 
 The 20-second demo uses the actual extension popup with isolated sample data; it does not contain private account content. A high-resolution version is available as [MP4](assets/demo.mp4).
 
-## Write where you already write
+## Use social media as your note-taking app
 
-You are already capturing ideas on X or Threads. Why do the same work again after you publish?
+Sometimes a blank notebook gives you nothing to write, while a post in your feed brings a whole idea to mind. If social media is already where you write, it can be where you take notes too.
 
-Social Post to Obsidian saves published posts, threads, and static images to a local Markdown folder, an Obsidian Vault, or Apple Notes. A single thought is saved. A long thread is saved in its original order.
+**sun-pit makes posting and taking notes the same action.** Write your own thoughts on X or Threads, then add to them in a thread. After you publish, sun-pit saves the text, thread, and static images to your chosen Markdown folder, Obsidian Vault, or Apple Notes, with the source and time attached.
 
-There is no capture button to remember, no copy-paste trip back to Obsidian, and no second round of formatting. Keep writing the way you already do. The note takes care of itself.
+The name 順筆 means writing as your thoughts come and keeping a note along the way. Stay in the social app while you write; return to your notes when you want to find, organize, or develop an idea. There is no separate copy-and-paste step after each post.
 
-Writing flow often breaks after the writing is done: switching tools, fixing the format, and checking whether the note was saved. For people in the AuDHD community, those extra steps can make “I’ll organize it later” turn into never organizing it.
-
-Social media is where the writing starts; Obsidian is where it stays. There is no second note-taking habit to build.
+The project grew out of AuDHD needs: switching tools and remembering to organize things later can interrupt a thought. Letting notes build up through an existing writing habit removes one more thing to remember.
 
 ## What you get
 
 - Published X and Threads posts become Markdown notes or Apple Notes automatically.
 - Individual posts, multi-post threads, and static images are preserved in their original order.
-- Every post stays in its own structured, copyable Markdown code block.
+- When saved as Markdown, each post has its own copyable code block.
 - Source URLs, timestamps, reply context, quoted posts, and thread counts stay with the writing.
 - Drafts are saved automatically, and interrupted saves retry to their original destination.
 - The popup lets you preview, open, or delete drafts and recent saves.
@@ -57,10 +56,12 @@ Only the Local REST API destination requires [Obsidian](https://obsidian.md/). O
 
 ## Install
 
+The working tree is the 2.19.1 release candidate; the store and existing releases may still use the previous name and package filenames.
+
 ### Install from the Chrome Web Store
 
-1. Install [Social Post to Obsidian from the Chrome Web Store](https://chromewebstore.google.com/detail/social-post-to-obsidian/jdfempgjnmdlokacfjmnipihhghcnomb).
-2. To use the recommended Native Helper on macOS, download `social-post-to-obsidian-helper-v*-macos.zip` from the matching [GitHub Release](https://github.com/lostshin/social-post-to-obsidian/releases).
+1. Install [sun-pit from the Chrome Web Store](https://chromewebstore.google.com/detail/sun-pit/jdfempgjnmdlokacfjmnipihhghcnomb).
+2. To use the recommended Native Helper on macOS, download `sun-pit-helper-v*-macos.zip` from the matching [GitHub Release](https://github.com/lostshin/sun-pit/releases).
 3. Extract the archive and run:
 
    ```bash
@@ -71,7 +72,7 @@ Chrome Web Store extensions cannot install local programs automatically. If you 
 
 ### Install manually from a GitHub Release
 
-1. Download and extract `social-post-to-obsidian-v*.zip` from [Releases](https://github.com/lostshin/social-post-to-obsidian/releases) into a permanent folder.
+1. Download and extract `sun-pit-v*.zip` from [Releases](https://github.com/lostshin/sun-pit/releases) into a permanent folder.
 2. Open `chrome://extensions/`, enable **Developer mode**, choose **Load unpacked**, and select the folder containing `manifest.json`.
 3. On macOS, install the Native Helper from that folder:
 
@@ -98,13 +99,13 @@ The popup separates unpublished drafts from recent saves. Open and delete action
 
 ## What gets saved
 
-The default note folder is `個人創作/社群推文`, and the default media folder is `附件/Social Post to Obsidian`:
+The default note folder is `個人創作/社群推文`, and the default media folder is `附件/順筆`:
 
 ```text
 個人創作/社群推文/
 └── 2026-07-18_1100_圖片同步測試.md
 
-附件/Social Post to Obsidian/
+附件/順筆/
 └── 2026-07-18_1100_圖片同步測試/
     ├── image-01.jpg
     └── image-02.webp
@@ -145,12 +146,12 @@ There is no developer-operated server, remote code, data sale, or data sharing. 
 
 ## Roadmap
 
-Project direction is tracked openly with the [`roadmap` label](https://github.com/lostshin/social-post-to-obsidian/issues?q=state%3Aopen%20label%3Aroadmap). Current explorations include:
+Project direction is tracked openly with the [`roadmap` label](https://github.com/lostshin/sun-pit/issues?q=state%3Aopen%20label%3Aroadmap). Current explorations include:
 
-- [Native Helper support for Windows and Linux](https://github.com/lostshin/social-post-to-obsidian/issues/2)
-- [Chromium-based browser compatibility](https://github.com/lostshin/social-post-to-obsidian/issues/3)
-- [Local preservation of videos and animated GIFs](https://github.com/lostshin/social-post-to-obsidian/issues/4)
-- [Browser-level smoke tests for release packages](https://github.com/lostshin/social-post-to-obsidian/issues/5)
+- [Native Helper support for Windows and Linux](https://github.com/lostshin/sun-pit/issues/2)
+- [Chromium-based browser compatibility](https://github.com/lostshin/sun-pit/issues/3)
+- [Local preservation of videos and animated GIFs](https://github.com/lostshin/sun-pit/issues/4)
+- [Browser-level smoke tests for release packages](https://github.com/lostshin/sun-pit/issues/5)
 - [Joplin Data API](https://joplinapp.org/help/api/references/rest_api/) is the next storage-provider candidate; [Bear CLI](https://bear.app/faq/command-line-interface/) follows it.
 
 Roadmap issues describe desired outcomes, not promised release dates. Evidence from real workflows takes priority over feature count.
@@ -168,15 +169,15 @@ git diff --check
 
 The packaging script creates:
 
-- `social-post-to-obsidian-v<version>.zip`: manual GitHub installation and Chrome Web Store package.
-- `social-post-to-obsidian-helper-v<version>-macos.zip`: macOS Helper for Store users.
+- `sun-pit-v<version>.zip`: manual GitHub installation and Chrome Web Store package.
+- `sun-pit-helper-v<version>-macos.zip`: macOS Helper for Store users.
 - `SHA256SUMS`: SHA-256 checksums for both archives.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before contributing. Chrome Web Store fields, permission justifications, and review instructions are documented in [docs/CHROME_WEB_STORE.md](docs/CHROME_WEB_STORE.md).
 
 ## Support and license
 
-- Bugs and feature requests: [GitHub Issues](https://github.com/lostshin/social-post-to-obsidian/issues)
+- Bugs and feature requests: [GitHub Issues](https://github.com/lostshin/sun-pit/issues)
 - Security reports: [SECURITY.md](SECURITY.md)
 - License: [MIT](LICENSE)
 

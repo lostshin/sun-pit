@@ -1,4 +1,4 @@
-# Social Post to Obsidian v2.4.0
+# 順筆 v2.4.0
 
 將 X 與 Threads 的貼文、串文和靜態圖片備份成結構清楚、容易複製的 Obsidian Markdown。
 
@@ -12,8 +12,8 @@
 
 ## 安裝
 
-- Chrome extension：`social-post-to-obsidian-v2.4.0.zip`
-- macOS Native Helper：`social-post-to-obsidian-helper-v2.4.0-macos.zip`
+- Chrome extension：`sun-pit-v2.4.0.zip`
+- macOS Native Helper：`sun-pit-helper-v2.4.0-macos.zip`
 - 完整安裝步驟請見 `INSTALL.md`。
 
 Chrome Web Store 版使用者若採 Native Helper，請執行：

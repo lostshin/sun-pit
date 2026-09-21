@@ -15,10 +15,10 @@
     <path d="M50 50h36a8 8 0 0 1 8 8v19a8 8 0 0 1-8 8H72L59 96V85h-9a8 8 0 0 1-8-8V58a8 8 0 0 1 8-8Z" fill="#FFFDF9"/>
     <path d="M68 57v17m-7-7 7 7 7-7" fill="none" stroke="#6E56B3" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
-  <g font-family="Avenir Next, Avenir, sans-serif">
-    <text x="34" y="148" fill="#25222B" font-size="34" font-weight="760" letter-spacing="-1">Social Post</text>
-    <text x="34" y="185" fill="#25222B" font-size="34" font-weight="760" letter-spacing="-1">to <tspan fill="#6E56B3">Obsidian.</tspan></text>
-    <text x="36" y="224" fill="#66606C" font-size="15" font-weight="600">X・Threads → 自己的 Vault</text>
+  <g font-family="Avenir Next, PingFang TC, sans-serif">
+    <text x="34" y="148" fill="#25222B" font-size="34" font-weight="760" letter-spacing="-1">順筆</text>
+    <text x="34" y="185" fill="#25222B" font-size="34" font-weight="760" letter-spacing="-1"><tspan fill="#6E56B3">sun-pit</tspan></text>
+    <text x="36" y="224" fill="#66606C" font-size="15" font-weight="600">社群，就是你的筆記本。</text>
     <rect x="300" y="194" width="106" height="42" rx="11" fill="#FFFDF9" stroke="#DCD4CB"/>
     <circle cx="320" cy="215" r="5" fill="#397A5B"/>
     <text x="334" y="220" fill="#47424D" font-size="13" font-weight="700">Local-first</text>

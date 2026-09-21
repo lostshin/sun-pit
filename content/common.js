@@ -3,7 +3,7 @@
 var SP2O = (function () {
   'use strict';
 
-  const LOG = '[Social Post to Obsidian]';
+  const LOG = '[順筆]';
 
   // 啟動時印出版本，方便確認此分頁載入的是哪一版（重載擴充功能後需重新整理分頁）
   try {

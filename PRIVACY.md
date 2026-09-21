@@ -1,8 +1,8 @@
 # 隱私權政策
 
-最後更新：2026-08-10
+最後更新：2026-09-21
 
-Social Post to Obsidian（以下稱「本擴充功能」）的單一用途，是將使用者自己在 X 或 Threads 撰寫與發佈的貼文，備份至使用者指定的本機 Markdown 資料夾、Obsidian Local REST API 或 Apple 備忘錄。每次只使用一個目的地。
+順筆 sun-pit（以下稱「本擴充功能」）的單一用途，是將使用者自己在 X 或 Threads 撰寫與發佈的貼文，存成筆記，寫入使用者指定的本機 Markdown 資料夾、Obsidian Local REST API 或 Apple 備忘錄。每次只使用一個目的地。
 
 ## 處理的資料
 
@@ -16,7 +16,7 @@ Social Post to Obsidian（以下稱「本擴充功能」）的單一用途，是
 - 選擇 Apple 備忘錄時，所選 account／folder 的系統 ID 與顯示名稱。
 - 待補存貼文、最近五筆存檔資訊與草稿存檔狀態。
 
-本擴充功能不會讀取一般動態消息、私訊、cookies、密碼、完整瀏覽紀錄、金融資料或健康資料。它只處理完成備份功能所需的 X／Threads 撰寫與發佈事件，以及與該貼文直接相關的內容。
+本擴充功能不會讀取一般動態消息、私訊、cookies、密碼、完整瀏覽紀錄、金融資料或健康資料。它只處理完成筆記保存功能所需的 X／Threads 撰寫與發佈事件，以及與該貼文直接相關的內容。
 
 ## 資料如何使用與傳送
 
@@ -38,10 +38,10 @@ Social Post to Obsidian（以下稱「本擴充功能」）的單一用途，是
 - 草稿狀態：Markdown／REST 目的地的實際草稿由該目的地管理；Apple 備忘錄模式的完整草稿暫存在 `chrome.storage.local`，只有在目的地接受正式貼文或使用者刪除草稿後才移除。
 - 離線佇列記錄原目的地與原始貼文資料，不重複保存 API Key；切換目的地後仍補存至原目的地。
 
-本機 Helper 會把使用者選定的 Markdown 根資料夾絕對路徑保存在：
+本機 Helper 會把使用者選定的 Markdown 根資料夾絕對路徑保存在以下目錄；新版使用 sun-pit 目錄：
 
 ```text
-~/Library/Application Support/Social Post to Obsidian/config.json
+~/Library/Application Support/sun-pit/config.json
 ```
 
 移除 Chrome extension 不會自動刪除此檔案；可執行 `./native/uninstall-host.sh --purge` 一併清除。既有 Markdown、圖片與 Apple 備忘錄則由使用者自行保管。
@@ -67,8 +67,8 @@ Social Post to Obsidian（以下稱「本擴充功能」）的單一用途，是
 
 ## Chrome Web Store Limited Use
 
-本擴充功能使用從 Chrome API 與網站頁面取得的資訊時，遵守 [Chrome Web Store User Data Policy](https://developer.chrome.com/docs/webstore/program-policies/user-data)，包括 Limited Use requirements。資料只用於提供或改善上述單一、明確且使用者可見的備份功能；不會用於個人化廣告、轉售、信用評估，也不會允許人員讀取，法律或安全義務另有要求者除外。
+本擴充功能使用從 Chrome API 與網站頁面取得的資訊時，遵守 [Chrome Web Store User Data Policy](https://developer.chrome.com/docs/webstore/program-policies/user-data)，包括 Limited Use requirements。資料只用於提供或改善上述單一、明確且使用者可見的筆記保存功能；不會用於個人化廣告、轉售、信用評估，也不會允許人員讀取，法律或安全義務另有要求者除外。
 
 ## 變更與聯絡
 
-政策有重大變更時，會更新本頁日期與內容。一般問題可使用 [GitHub Issues](https://github.com/lostshin/social-post-to-obsidian/issues)；若涉及 API Key、私人貼文或安全漏洞，請依 [SECURITY.md](SECURITY.md) 使用 GitHub Private vulnerability reporting。
+政策有重大變更時，會更新本頁日期與內容。一般問題可使用 [GitHub Issues](https://github.com/lostshin/sun-pit/issues)；若涉及 API Key、私人貼文或安全漏洞，請依 [SECURITY.md](SECURITY.md) 使用 GitHub Private vulnerability reporting。

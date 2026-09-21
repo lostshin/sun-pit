@@ -1,11 +1,13 @@
 # 貢獻指南
 
-感謝你協助改善 Social Post to Obsidian。本專案維持零第三方 JavaScript 依賴、無 build step 的 Chrome Manifest V3 架構。
+感謝你協助改善 順筆。本專案維持零第三方 JavaScript 依賴、無 build step 的 Chrome Manifest V3 架構。
+
+順筆的理念是「直接把社群軟體當成筆記軟體」。新增功能應讓發文自然成為記筆記，減少切換工具與事後整理的步驟。
 
 ## 開始前
 
 - 使用目前仍受支援的 Node.js LTS 或 Current 版本。
-- 安裝 Google Chrome 與 Obsidian。
+- 安裝 Google Chrome；只有測試 Local REST API 目的地時才需要 Obsidian。
 - macOS 預設使用 Native Helper；從 repository 根目錄執行 `./native/install-host.sh`。其他系統或 REST 相關開發再安裝 [Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api)。
 - Fork repository，從 `main` 建立用途明確的 branch。
 - 不要在 issue、PR、測試資料或 log 中提交 API Key、私人貼文、cookies 或完整平台回應。
@@ -52,7 +54,7 @@ PR 請保持單一目的，並說明：
 
 1. 確認 `main` 全部驗證通過，且 `manifest.json.version` 是要發布的版本。
 2. 在本機執行 `./scripts/package-extension.sh`，確認 extension ZIP、macOS Helper ZIP 與 `SHA256SUMS` 都已產生。
-3. 以解壓縮後的 `dist/social-post-to-obsidian-v*.zip` 做最後一次 Load unpacked 測試，並依 [`INSTALL.md`](INSTALL.md) 驗證 Helper 安裝流程。
+3. 以解壓縮後的 `dist/sun-pit-v*.zip` 做最後一次 Load unpacked 測試，並依 [`INSTALL.md`](INSTALL.md) 驗證 Helper 安裝流程。
 4. 建立與 Manifest 一致的 tag，例如 `v2.2.0`，再 push tag。
 5. GitHub Actions 會重跑驗證、建立兩個乾淨 ZIP 與 checksum，並發布 GitHub Release。
 6. 將 extension ZIP 上傳 Chrome Web Store；不要上傳 Helper ZIP。欄位、權限揭露與 reviewer instructions 見 [`docs/CHROME_WEB_STORE.md`](docs/CHROME_WEB_STORE.md)。

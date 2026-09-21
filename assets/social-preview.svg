@@ -27,14 +27,14 @@
     <path d="M114 84v17m-7-7 7 7 7-7" fill="none" stroke="#6E56B3" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 
-  <g font-family="Avenir Next, Avenir, sans-serif">
+  <g font-family="Avenir Next, PingFang TC, sans-serif">
     <text x="178" y="91" fill="#6E56B3" font-size="16" font-weight="700" letter-spacing="2.4">OPEN SOURCE · CHROME MV3</text>
-    <text x="178" y="119" fill="#77717E" font-size="15" font-weight="500">X 與 Threads 的文字與圖片本機備份工具</text>
+    <text x="178" y="119" fill="#77717E" font-size="15" font-weight="500">直接把 X 與 Threads 當成筆記軟體</text>
 
-    <text x="76" y="244" fill="#25222B" font-size="68" font-weight="750" letter-spacing="-2.8">Social Post</text>
-    <text x="76" y="318" fill="#25222B" font-size="68" font-weight="750" letter-spacing="-2.8">to <tspan fill="#6E56B3">Obsidian.</tspan></text>
+    <text x="76" y="244" fill="#25222B" font-size="68" font-weight="750" letter-spacing="-2.8">順筆</text>
+    <text x="76" y="318" fill="#25222B" font-size="68" font-weight="750" letter-spacing="-2.8"><tspan fill="#6E56B3">sun-pit</tspan></text>
 
-    <text x="80" y="384" fill="#5E5966" font-size="22" font-weight="500">把發佈過的文字與圖片，安靜地留在自己的 Vault。</text>
+    <text x="80" y="384" fill="#5E5966" font-size="22" font-weight="500">在社群寫下想法，順手記進自己的筆記。</text>
 
     <g transform="translate(80 435)">
       <rect width="150" height="36" rx="8" fill="#FFFDF9" stroke="#DCD4CB"/>
@@ -53,7 +53,7 @@
     </g>
 
     <path d="M80 526h480" stroke="#D8D0C7"/>
-    <text x="80" y="566" fill="#827C89" font-size="14" font-weight="600" letter-spacing="0.3">github.com/lostshin/social-post-to-obsidian</text>
+    <text x="80" y="566" fill="#827C89" font-size="14" font-weight="600" letter-spacing="0.3">github.com/lostshin/sun-pit</text>
     <text x="80" y="596" fill="#AAA3AD" font-size="12" font-weight="500">Manifest V3 · Obsidian Local REST API · 本機優先</text>
   </g>
 
@@ -62,7 +62,7 @@
     <rect x="830" y="24" width="384" height="592" rx="24" fill="#FFFDF9" stroke="#D6CFC6" stroke-width="2"/>
   </g>
 
-  <g font-family="Avenir Next, Avenir, sans-serif">
+  <g font-family="Avenir Next, PingFang TC, sans-serif">
     <rect x="858" y="58" width="328" height="70" rx="14" fill="#F6F3EE" stroke="#E0D8D0"/>
     <rect x="878" y="76" width="34" height="34" rx="9" fill="#25222B"/>
     <path d="M886 83h18a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4h-7l-6 5v-5h-5a4 4 0 0 1-4-4V87a4 4 0 0 1 4-4Z" fill="#FFFDF9"/>
@@ -70,7 +70,7 @@
     <text x="930" y="88" fill="#77717E" font-size="11" font-weight="650" letter-spacing="1.1">LOCAL WORKFLOW</text>
     <text x="930" y="108" fill="#25222B" font-size="16" font-weight="700">發佈後，自動留在 Vault</text>
 
-    <text x="862" y="174" fill="#6E56B3" font-size="12" font-weight="700" letter-spacing="1.5">OBSIDIAN VAULT</text>
+    <text x="862" y="174" fill="#6E56B3" font-size="12" font-weight="700" letter-spacing="1.5">YOUR NOTEBOOK</text>
     <text x="862" y="204" fill="#25222B" font-size="26" font-weight="750">清楚的筆記與附件</text>
 
     <rect x="858" y="232" width="328" height="96" rx="14" fill="#FBF9F6" stroke="#E0D8D0"/>
@@ -82,7 +82,7 @@
 
     <rect x="858" y="344" width="328" height="120" rx="14" fill="#FBF9F6" stroke="#E0D8D0"/>
     <circle cx="882" cy="370" r="5" fill="#8B672E"/>
-    <text x="898" y="375" fill="#47424D" font-size="13" font-weight="700">附件 / Social Post to Obsidian</text>
+    <text x="898" y="375" fill="#47424D" font-size="13" font-weight="700">附件 / 順筆</text>
     <path d="M882 389v48h12" fill="none" stroke="#D1C5B5" stroke-width="1.5"/>
     <rect x="896" y="397" width="46" height="34" rx="6" fill="#E9E2D7"/>
     <rect x="948" y="397" width="46" height="34" rx="6" fill="#DFD7EA"/>

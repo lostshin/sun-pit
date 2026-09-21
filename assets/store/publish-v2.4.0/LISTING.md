@@ -3,7 +3,7 @@
 ## 商品識別
 
 - Extension ID：`jdfempgjnmdlokacfjmnipihhghcnomb`
-- 套件標題：`Social Post to Obsidian`
+- 套件標題：`順筆`
 - 建議不要更名：目前名稱簡短、英文自然度可接受，並保留 repository、Popup、Helper 與使用者文件的一致品牌。中文搜尋意圖放進摘要與說明即可。
 - 套件摘要（由 `manifest.json` 帶入）：`發佈 X 與 Threads 貼文後，自動將文字與圖片備份至你的 Obsidian Vault`
 - 類別：`生產力工具（Productivity）`
@@ -14,7 +14,7 @@
 ```text
 把發出去的貼文，留在自己手上。
 
-Social Post to Obsidian 會在你於 X 或 Threads 發佈貼文後，自動把文字、串文與靜態圖片整理成 Markdown，寫入你指定的 Obsidian Vault。不必再手動複製貼上，也不必把內容交給另一個雲端筆記服務。
+順筆 會在你於 X 或 Threads 發佈貼文後，自動把文字、串文與靜態圖片整理成 Markdown，寫入你指定的 Obsidian Vault。不必再手動複製貼上，也不必把內容交給另一個雲端筆記服務。
 
 你會得到：
 • 清楚的 YAML frontmatter：包含標題、平台、發佈時間、來源網址與串文數量
@@ -53,9 +53,9 @@ Windows、Linux，或不想安裝 Helper 的使用者，可改用 Obsidian Local
 ## URL
 
 - 官方網址：留白；只有完成 Search Console 網域驗證後才能選。
-- 首頁：`https://github.com/lostshin/social-post-to-obsidian`
-- 支援：`https://github.com/lostshin/social-post-to-obsidian/issues`
-- 隱私權政策：`https://github.com/lostshin/social-post-to-obsidian/blob/main/PRIVACY.md`
+- 首頁：`https://github.com/lostshin/sun-pit`
+- 支援：`https://github.com/lostshin/sun-pit/issues`
+- 隱私權政策：`https://github.com/lostshin/sun-pit/blob/main/PRIVACY.md`
 
 ## 隱私權：單一用途
 

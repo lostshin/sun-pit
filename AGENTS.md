@@ -3,11 +3,11 @@
 
 # AGENTS.md
 
-本檔供 Claude Code 與 Codex 共用，記錄目前架構、不可回退的產品契約、已驗證陷阱與最短驗收路徑。硬上限 200 行；現況以 `manifest.json`、`native/host.rb`、程式與測試為準，新增經驗時先取代過時內容，不要重抄。
+本檔供 Claude Code 與 Codex 共用，記錄目前架構、不可回退的產品契約、已驗證陷阱與最短驗收路徑。硬上限 250 行；現況以 `manifest.json`、`native/host.rb`、程式與測試為準，新增經驗時先取代過時內容，不要重抄。
 
 ## 開工、修改與交付
 
-1. 先跑 `git status --short`；既有 dirty files 屬於使用者。只碰任務檔，不順手重構、格式化、stage 或發布。
+1. 先確認 cwd 為 `/Users/lokunlim/projects/sun-pit`，再跑 `git status --short`；既有 dirty files 屬於使用者。只碰任務檔，不順手重構、格式化、stage 或發布。
 2. 用 `rg -n` 追函式、訊息與測試，不先掃完整 repository。回歸優先擴充 `tests/media-sync.test.mjs` 的 VM、假 Native Host／`osascript`、YAML 與隔離資料夾 harness。
 3. 修 bug 必須先新增可重現測試並確認 FAIL，再修到 PASS；靜態 source assertion 只能保護 UI 接線，資料與流程應以可執行測試驗證。
 4. 大段重寫前確認檔案可由 git 回復；dirty 檔先同目錄備份。每個 changed line 都要能追溯到使用者需求。
@@ -16,7 +16,9 @@
 
 ## 專案定位與架構
 
+- 品牌為「順筆 sun-pit」，理念是「直接把社群軟體當成筆記軟體」；repository 為 `lostshin/sun-pit`。商店 extension ID 保留；unpacked ID 可能隨載入路徑改變。Host 與設定目錄改用 sun-pit，既有筆記不搬移。
 - Chrome Manifest V3 擴充功能；把 X／Threads 貼文與圖片寫到單一目的地：本機 Markdown 資料夾、Obsidian Local REST API 或 Apple 備忘錄。無 build step、無第三方 runtime 依賴。
+- macOS 的 Markdown 資料夾／Apple 備忘錄只需 Native Helper，不需 Obsidian；只有 REST 模式依賴 Obsidian 與其外掛。Windows／Linux 目前僅支援 REST 路線。
 - MAIN world `content/interceptor.js` 攔 fetch／XHR；isolated world `content/common.js` + 平台檔擷取 DOM；`background.js` 管 provider、草稿、queue、recent refs、合併與 alarm；`popup/*` 只透過 background 操作目的地。
 - `shared/settings.js` 與 `providers/*.js` 是 background／popup 的共用設定與 adapter registry。新增或改名共用檔時同步更新 validator 與 package 必含清單。
 - 中立模型是 `SocialPostData`；工作流不得依賴 Markdown path。`StorageRef` 是 file ref 或 Notes `{provider,noteId,title,externalKey}`；開啟、刪除、exists 一律交給 ref 所屬 provider。
@@ -48,11 +50,19 @@
 - 自動去重只作用於目前目的地；手動掃描一次跑所有已設定 provider，但每個 provider／location 獨立分組與報錯，不跨服務搬移或刪除。
 - 同 fingerprint 的 prepare→write→index 共用 destination-scoped lock；所有 fingerprint 對 `contentDedupeIndex` 的 read-modify-write 另行序列化，避免並行時遺失索引。
 - 新建或合併筆記寫 `content_fingerprint`、`platforms`、`sources[{platform,url,published_at,external_key}]`；舊 scalar `platform/source/source_url` 只供既有資料讀取。任何 source identity 都要能回查同一 ref。
-- 掃描必須唯讀，結果與 revision snapshot 存本機並可在 Popup 重開後恢復；使用者確認後才合併。掃描後任一筆內容變更就整組 skip，不可套用舊預覽。
+- 掃描對目的地必須唯讀，結果與 revision snapshot 存本機並可在 Popup 重開後恢復；使用者確認後才合併。掃描後任一筆內容變更就整組 skip，不可套用舊預覽。
+- 重複文章掃描只有 `result.errors.length === 0` 才可呼叫 `replaceDedupeScopeIndex()`；部分讀取失敗必須保留該 scope 原索引，provider 回報 `ok:false`／`complete:false` 與 warnings。成功讀取的預覽可保留；Popup 當次與重開後皆須呈現不完整原因，不可以頂層 `ok:true` 判定所有目的地成功。回歸用缺檔 fixture 比對掃描前後索引，並以 Popup VM 驗證警告與恢復狀態。
 - canonical 固定取最早建立者並保留標題、路徑、正文與手改。duplicate 的可辨識額外區塊附加到「合併保留內容」；無法可靠區分時不得猜測或刪除。
 - 圖片按實際 bytes 的 SHA-256 去重，不用 URL／檔名；不同轉碼都保留。流程固定：讀回全部→複製唯一媒體→寫 canonical→讀回驗證 fingerprint／所有 sources→刪 duplicate→清專屬媒體→同步 recent、thread contexts 與 index。
 - canonical 已更新但 duplicate 刪除失敗時，下次掃描須用 canonical 已收錄的 exact source identity 產生 cleanup group；操作必須冪等。
 - Provider adapter 必須實作 `scanPublished`／`mergeDuplicateGroup`。Notes 掃描只能由使用者觸發並分頁；Popup 初開、activity sync 與一般發文不得暗中列舉整個 Notes folder。
+
+## 維護狀態與索引修復
+
+- `archiveStatus:<destination scope>` 持久保存封存開始、結果、失敗與最後成功時間；`getMaintenanceStatus()` 只讀本機狀態／alarm，不能因此列舉 Notes。Popup 晚回來的 response 必須受 request generation 保護。
+- 索引檢查 `checkContentIndex()` 只針對目前目的地；`contentIndexCheck` 保存 scope、scanId、舊 entry、候選與 revision，重開 Popup 可恢復。不同於「重複文章」掃描所有已設定目的地，不得混用範圍。
+- 修復只接受原位置不存在、正文 fingerprint 與全部來源身分相符、候選位置唯一的項目。`repairContentIndex()` 重新核對 scope／scanId／revision／索引快照，序列化寫入後 read-back；掃描不完整停止，變更或多筆相符就略過，不猜測、不刪掉未找回的索引。
+- 索引修復不搬移／修改／刪除筆記、不修圖片、不重建 recent。封存更新 `contentDedupeIndex` 限當次 destination scope；recent／thread refs 另核對 provider，不可只憑相同 path 跨目的地改寫。
 
 ## Apple 備忘錄契約與已驗證陷阱
 
@@ -97,8 +107,8 @@
 
 ## Native／iCloud、REST 與刪除
 
-- Host ID `com.lostshin.social_post_to_obsidian`；設定 `~/Library/Application Support/Social Post to Obsidian/config.json`；商店 origin 固定 `jdfempgjnmdlokacfjmnipihhghcnomb`。
-- 一般資料夾不要求 `.obsidian`；若有則用 `obsidian://` 開啟，否則交 macOS 預設 Markdown app。只接受根目錄內相對路徑，保留 symlink 邊界。
+- Host ID `com.lostshin.sun_pit`；設定 `~/Library/Application Support/sun-pit/config.json`；商店 origin 固定 `jdfempgjnmdlokacfjmnipihhghcnomb`。
+- 一般資料夾不要求 `.obsidian`；若有則用 `obsidian://` 開啟，否則交 macOS 預設 Markdown app。未安裝 Obsidian 時應選一般資料夾；含 `.obsidian` 的資料夾仍可儲存，但「開啟」會嘗試啟動 Obsidian。只接受根目錄內相對路徑，保留 symlink 邊界。
 - iCloud `File.delete` 可能 `EPERM`：先看 framed response／stderr／unified log；iCloud 用 Finder alias 丟垃圾桶，本機才直接刪。
 - Popup 刪除順序固定為實體目的地 → storage → UI；`SYNC_VAULT_ACTIVITY` 只有 `exists:false` 才清 storage，Host 不可用就保留。
 - REST 27124 才走 HTTPS 自簽，其餘（含預設 27123）走 HTTP並顯示明文警告；不得擅自升級協定或改預設埠。
@@ -109,22 +119,35 @@
 - 參數型別逐 action 不同；辭典值先 `gettext`、日期字串先 `detect.date`，`downloadurl` 不多塞 `WFHTTPMethod`。Shortcuts 會把 HTML 渲染成文字，meta 路線不可用。
 - X 短文可用 syndication JSON，長文會 tombstone、引用缺失；Threads 公開頁不可取得完整內文。不要反覆單點猜測，使用同輪多變體對照實驗。
 
+## 品牌、全專案改名與素材驗收
+
+- 中文「順筆」、英文識別 `sun-pit` 與理念已確定。全專案改名須涵蓋 manifest／Popup／通知與 log、三份 README、安裝／隱私／貢獻文件、商店文案、workflow／套件檔名、Helper／測試、素材、GitHub About／remote 及本機目錄，不可只改首頁。
+- 搜尋時從 repository 根目錄執行 `rg --hidden --no-ignore` 並排除 `.git`；同時查大小寫、空白／連字號／底線變體與檔名。普通 `rg` 會漏掉忽略的 dist、快取、備份；還須列出並解壓檢查 ZIP 內檔案，不能以原始碼零筆宣稱全專案零筆。
+- SVG／HTML 改字後重產 PNG、GIF／MP4，並實際看圖；掃文字不能驗證點陣圖。現有流程：`rsvg-convert` 產生 SVG 對應 PNG，`node scripts/capture-demo.mjs` 用隔離 Chrome profile 與合成資料重產展示影片；不得拿日常帳號或筆記當素材。
+- 使用者要求清除全部舊名時，工作樹中的歷史素材也要處理；Git 歷史、公開 tag 與已發布 assets 不改寫。舊 ZIP、快取及改前備份完整封存到專案外，避免搜尋再命中；不可刪除使用者原本的備份來湊零筆。
+- 搬移本機目錄與 GitHub rename 是不同操作。先核對目標不存在、搬後 cwd／remote 正確，再重裝 Helper、讀回 `allowed_origins` 與安裝檔；installer 會重寫 origin 清單，不能假設一次手動追加的 origin 永久保留。
+- 改路徑不會替 Chrome 轉移 unpacked 設定。保留原擴充功能直到確認設定／queue，禁止先移除再重加；載入新路徑、extension ID 與 storage 延續須另做 runtime 驗收，不能用 Helper 安裝成功替代。
+- dirty 規則檔仍先同目錄備份再改；驗收後備份可移到專案外封存。封裝使用必含檔案／副檔名清單，驗證 ZIP 不含 `.bak*`、測試資料、規則檔或私人設定；備份不能因 wildcard 被打進套件。
+
 ## 公開文件、Release 與 Web Store
 
-- 「整體文案」同步檢查繁中／英文 README、GitHub About、Store listing；必要才連動 INSTALL／PRIVACY。README 改後用 GitHub 公開頁驗證渲染。
-- Release workflow 綁 `v*` tag；只以上傳後同一 Release 的 `SHA256SUMS` 驗證 assets。本機重新封裝因 timestamp 可能不同 hash。
+- 新版商店文案來源是 `assets/store/LISTING.md`，發布流程見 `docs/CHROME_WEB_STORE.md`。本機文件修改、GitHub repository／About 改名、commit／push、Release、商店草稿／送審／公開須分別回報，不得互相代稱。README 推送後才做公開頁渲染驗證；未推送時只回報本機檢查。
+- Release workflow 綁 `v*` tag；只以上傳後同一 Release 的 `SHA256SUMS` 驗證 assets。本機重新封裝因 timestamp 可能不同 hash；checksum 檔中的相對檔名以 `dist/` 為工作目錄執行 `shasum -a 256 -c SHA256SUMS`。
 - Web Store 只上傳 Release 的 extension ZIP，不上傳 Helper。Dashboard「已發布」、語系 Approved 或待審不代表可安裝；update service ok、匿名頁有「加到 Chrome」且隔離安裝成功才算公開。
 - Web Store 優先 Chrome connector；只有使用者授權才用 AppleScript。若落在 register／協議／$5 頁代表錯帳戶，不代勾或付款。
 
-## 目前進度（2026-08-26）
+## 目前進度（2026-09-22）
 
-- 工作樹 Extension `2.17.3`、storage schema v3、Host `1.9.2`（`MIN_NATIVE_HOST_VERSION` 同步提高）；自動封存、跨平台去重與封存排程修復仍未 commit。Host 已安裝，`cmp` 證實安裝檔等於 `native/host.rb`。
-- 自動封存曾整整一個月靜默失效，根因三層且互相遮蔽：舊 alarm 的 `delayInMinutes` 等於整個週期（reload 就重排，永遠跑不到）、`RETRY_QUEUE` 對 markdown-folder 誤呼叫 `stopArchiveMaintenance()`、Host 在 Chrome 無 `LANG` 環境下處理中文檔名時編碼崩潰。三者都已 red→green 修掉。
-- 已以 red→green 回歸保護：三 provider 新貼文去重、同平台／同分鐘不覆寫、串文對單篇、REST／Notes 既有掃描、oldest canonical、手改保留、圖片 bytes hash、revision stale skip、刪除失敗續處理、Popup 掃描恢復、v2→v3 migration 與 index 並行寫入、儲存設定不得清封存 alarm、`LANG=C` 下中文檔名封存。
-- 自動驗收已通過：所有修改 JS `node --check`、`ruby -c`、validator、完整 `tests/media-sync.test.mjs`、`git diff --check`；測試使用隔離 Vault、假 Host／REST／`osascript`，未碰真實內容。
-- 真實 Vault 已於 2026-08-26 補封存 111 筆逾期貼文（主資料夾僅餘 7 天內 23 筆、圖片連結 0 broken）。該批是繞過 extension 直接呼叫 Host 執行的，`contentDedupeIndex` 內約 20 筆 refs 仍指舊路徑，必要時由 Popup 手動掃描重新分組。
-- 待人工驗收：重載 unpacked extension 確認各 context 都是 `2.17.3`，並確認 catch-up 那次印出封存 log 而非編碼錯誤（Vault 已清空，正常結果是「移動 0 筆」）；真實 Chrome→Host 的實際搬移要等再有貼文逾期才驗得到。用測試 Vault／Notes folder 預覽並確認一次既有重複合併；X／Threads 真實跨平台同文、多圖與中途關閉 Popup。未授權不得代發或掃描日常資料。
-- 已公開固定基準仍是 tag `v2.4.2`（commit `8569607`）；不可把目前 dirty 工作樹或商店審查狀態宣稱成已發布版本。
+- **位置與品牌**：本機已搬至 `/Users/lokunlim/projects/sun-pit`；GitHub repository／About 與 origin 已改為 `lostshin/sun-pit`。現有 `CLAUDE.md -> AGENTS.md` 接線正常。舊路徑不再使用。
+- **版本與提交**：Extension `2.19.2`、schema v3、Host／最低需求 `1.10.0`。本輪獲授權將掃描修復、規則、先前改名、維護功能、素材與文件一併 commit／push；實際同步狀態以 `git log`／`git status` 及遠端 ref 為準，不在本檔寫會立即過期的 HEAD。尚未建立新版 tag／Release 或更新商店。
+- **已完成功能**：Popup 封存狀態與目前目的地的索引預覽／確認修復；封存不再跨 destination scope 改寫索引。正文／來源／revision／快照重新驗證、失敗保留與讀回已測；詳細契約見上方，避免在進度區重抄。
+- **名稱清理**：原始碼、文件、Helper、測試及工作樹歷史素材已統一；文字、忽略檔、檔名與新版 ZIP 掃描舊名為 0（不含 Git 歷史）。SVG 對應 PNG、Popup 圖與示範 GIF／MP4 已重產；舊產物／快取／備份封存在 `~/sun-pit-archives/20260922-033215/`。
+- **Helper 安裝**：新路徑 installer 已執行，`cmp` 確認安裝的 host.rb 等於來源；原資料夾設定已在本機複製至新設定目錄，未搬移筆記。安裝 manifest 目前授權商店、新路徑 unpacked `hefhgppinnboklgpbdjoplgehpkanamg` 及既有 unpacked `heagjngollcaijefoajffecndijplmeb`；最後一項是額外保留，重跑 installer 前須留意。
+- **本輪修復與驗證**：astra-low 子代理重現「部分掃描覆寫完整索引」，回歸先 FAIL 後 PASS；修復與 Popup 警告／重開恢復已納入 `tests/media-sync.test.mjs`。`2.19.2` validator、完整測試、JS／Ruby 語法與 `git diff --check` 通過；獨立 review 未發現本次引入的可確認問題。隔離真實 Helper 保存→合併→封存→讀回及重跑 0 筆通過；REST／Notes 與 Popup 為替身／VM，不能保證所有既有功能或平台 E2E 無回歸。
+- **本機產物與文件**：`dist/` 仍為 `2.19.1`，checksum 通過但不含本輪修復；未重打包。README、INSTALL、RELEASE_NOTES 與商店指南仍記載舊候選版，發布前須同步至實際版本並重產套件。最近核對本機 tag 為 `v2.15.6`；線上 Release／商店尚未重新核實。
+- **資料待核實**：8/26 曾繞過 extension 直接呼叫 Host 補封存 111 筆，當時約 20 筆去重 refs 指舊位置；本輪未掃描日常 Vault，不宣稱已修復。先用新索引檢查預覽，再由使用者確認。
+- **待處理候選**：合併結果／逐組錯誤被重新掃描覆蓋；Notes locations 過期回應可能改寫新 provider 提示（尚未動態重現）；iOS 雙引號摘要與桌機檔名不一致、固定 fence 未處理正文 backticks。這些尚未修復，不能因本輪 review 通過就視為結案；tombstone 佔位筆記是刻意限制。
+- **下一步**：核對新路徑 Chrome ID／storage 延續與各 context 版本，再驗收 Chrome→Host alarm、測試 Notes folder 合併／附件、X／Threads 同文／多圖／關閉 Popup。commit／push 不等於發布驗收；真實發文與日常資料操作仍須授權，平台驗收通過後才進入 Release／商店流程。
 
 ## 最短專項診斷
 
@@ -134,6 +157,8 @@
 - 草稿復活：composer scope → editor selector／ID → draftSessionId → content/background 2 秒 guard → storage → 目的地。
 - 漏回覆：`replyTo` → context/recent/source index → 三日窗 → read-back append → 失敗另存。
 - Threads 圖片：REST endpoint → forwarded response → parser → CDN → binary → Markdown。
-- 七日封存：`capabilities.archive` → alarm 是否存在（`chrome.alarms.getAll`）→ Host 編碼／`LANG` → cutoff／類型 → conflict → move → relative links → recent refs → 第二次執行。錯誤被 alarm handler 的 catch 吞成一行 log，先在 SW console 直接跑 `archiveOldSocialPosts(await getStorageSettings())`。
+- 七日封存：`capabilities.archive` → alarm 是否存在（`chrome.alarms.getAll`）→ Host 編碼／`LANG` → cutoff／類型 → conflict → move → relative links → recent refs → 第二次執行。先看 Popup 目的地封存狀態與 SW log；需要重現且目的地已獲授權時，再於 SW console 跑 `archiveOldSocialPosts(await getStorageSettings())`。
 - 重複未合併：eligibility → normalized text／fingerprint → destination scope → index candidate → ref read-back → sources；既有掃描再查 revision、manual sections、media hashes 與 delete-after-verify。
+- 改名殘留：cwd／目錄名 → 含忽略檔的變體搜尋 → 檔名／ZIP 內文 → PNG／影片 → Helper／Chrome ID → remote／線上狀態。
+- 索引修復：目前 scope → contentIndexCheck scanId → 原 ref exists → fingerprint＋全部來源 → 唯一候選／revision → entry 快照 → serialized write／read-back。
 - 發布：manifest version → tag → CI → Release assets/checksum → Web Store Draft → review → update service／匿名頁／隔離安裝。

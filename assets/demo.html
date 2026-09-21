@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=1280, initial-scale=1">
-  <title>Social Post to Obsidian — Workflow Demo</title>
+  <title>順筆 — Workflow Demo</title>
   <style>
     :root {
       --ink: #25222b;
@@ -400,16 +400,16 @@
       <div class="brand-row">
         <img src="../icons/logo.svg" alt="">
         <div>
-          <div class="brand-name">Social Post to Obsidian</div>
-          <div class="brand-note">Local-first archive for X + Threads</div>
+          <div class="brand-name">順筆</div>
+          <div class="brand-note">Your social feed is your notebook.</div>
         </div>
       </div>
 
       <div class="story-stage">
         <article class="stage" data-stage="0">
           <div class="stage-number">00 · The idea</div>
-          <h1>Write once.<br><span class="accent">Keep it.</span></h1>
-          <p class="stage-copy">Your posts should not live only on someone else's platform. Publish as usual; the extension keeps a local copy for you.</p>
+          <h1>Post a thought.<br><span class="accent">That’s a note.</span></h1>
+          <p class="stage-copy">Use X and Threads as your note-taking app. Write where your thoughts already happen; sun-pit turns your own posts into notes.</p>
           <div class="platform-row">
             <span class="chip">X posts</span>
             <span class="chip">Threads</span>
@@ -419,8 +419,8 @@
 
         <article class="stage" data-stage="1">
           <div class="stage-number">01 · While you write</div>
-          <h2>Your draft is<br><span class="accent">already safe.</span></h2>
-          <p class="stage-copy">Drafts are quietly saved to your own Vault. No developer cloud, no analytics payload, no new writing habit to learn.</p>
+          <h2>Stay with<br><span class="accent">the thought.</span></h2>
+          <p class="stage-copy">Drafts are saved as you write. Keep following the idea without switching to another app or remembering to copy it later.</p>
           <div class="proof-row">
             <span class="chip green">Auto-saved</span>
             <span class="chip">Local-first</span>
@@ -429,8 +429,8 @@
 
         <article class="stage" data-stage="2">
           <div class="stage-number">02 · After publishing</div>
-          <h2>Published.<br><span class="accent">Archived.</span></h2>
-          <p class="stage-copy">The final post replaces the draft and keeps its source URL, thread structure, timestamp, quote context, and images.</p>
+          <h2>Posted.<br><span class="accent">Noted.</span></h2>
+          <p class="stage-copy">Your published thought becomes a note, with its source, time, thread, and images. Choose a Markdown folder, Obsidian, or Apple Notes.</p>
           <div class="proof-row">
             <span class="chip green">Markdown saved</span>
             <span class="chip amber">Images downloaded</span>
@@ -438,32 +438,32 @@
         </article>
 
         <article class="stage" data-stage="3">
-          <div class="stage-number">03 · In your Vault</div>
-          <h2>Portable files.<br><span class="accent">Your archive.</span></h2>
+          <div class="stage-number">03 · In your notebook</div>
+          <h2>Find it later.<br><span class="accent">Keep thinking.</span></h2>
           <div class="vault-card">
             <div class="vault-head">
-              <strong>2026-07-23_2030_keep-your-writing.md</strong>
+              <strong>2026-07-23_2030_a-thought-to-return-to.md</strong>
               <span>Saved locally</span>
             </div>
             <div class="vault-files">
               <div class="note-preview">
                 ---<br>
-                title: <b>"Keep your writing"</b><br>
+                title: <b>"A thought to return to"</b><br>
                 platform: "Twitter/X"<br>
                 status: "published"<br>
                 ---<br><br>
                 ## Content<br>
                 ```text<br>
-                Write once. Keep it.<br>
+                A post is a note.<br>
                 ```<br><br>
                 ![](image-01.jpg)
               </div>
               <div class="file-tree">
-                <strong>Vault</strong>
+                <strong>Markdown folder</strong>
                 <span>└─ 個人創作/社群推文/</span>
-                <span>&nbsp;&nbsp;└─ keep-your-writing.md</span>
+                <span>&nbsp;&nbsp;└─ a-thought-to-return-to.md</span>
                 <strong style="margin-top:8px">Attachments</strong>
-                <span>└─ Social Post to Obsidian/</span>
+                <span>└─ 順筆/</span>
                 <span>&nbsp;&nbsp;└─ image-01.jpg</span>
               </div>
             </div>
@@ -475,7 +475,7 @@
         <div class="timeline-step">Write</div>
         <div class="timeline-step">Draft</div>
         <div class="timeline-step">Publish</div>
-        <div class="timeline-step">Vault</div>
+        <div class="timeline-step">Markdown folder</div>
       </div>
     </section>
 
@@ -483,7 +483,7 @@
       <div class="window">
         <div class="window-bar"><i></i><i></i><i></i></div>
         <div class="window-label">Actual extension UI</div>
-        <iframe id="popup" src="../popup/popup.html" title="Social Post to Obsidian popup"></iframe>
+        <iframe id="popup"  title="順筆 popup"></iframe>
         <div class="pulse-ring" aria-hidden="true"></div>
       </div>
       <div class="fine-print">ISOLATED DEMO DATA · NO PRIVATE ACCOUNT CONTENT</div>
@@ -519,11 +519,14 @@
       const draftList = doc.getElementById('draftList');
       const recentList = doc.getElementById('recentList');
 
-      doc.getElementById('version').textContent = 'v2.4.0';
+      doc.getElementById('version').textContent = 'v2.19.1';
       doc.getElementById('connDot').className = 'dot ok';
       doc.getElementById('connText').textContent = '已連接：創作筆記';
       doc.getElementById('settingsPanel').open = false;
       doc.getElementById('vaultName').textContent = '創作筆記';
+      doc.getElementById('maintenanceDestination').textContent = '目前已生效：本機 Markdown 資料夾';
+      doc.getElementById('archiveStatus').textContent = '最近封存完成 · 移動 0 筆';
+      doc.getElementById('indexStatus').textContent = '尚未檢查目前目的地';
 
       if (stage === 1) {
         draftSection.hidden = false;
@@ -537,10 +540,10 @@
 
       const items = [];
       if (stage >= 2) {
-        items.push(activityItem(doc, '2026-07-23_2030_keep-your-writing.md', 'Twitter/X · 剛剛'));
+        items.push(activityItem(doc, '2026-07-23_2030_a-thought-to-return-to.md', 'Twitter/X · 剛剛'));
       }
       items.push(
-        activityItem(doc, '2026-07-22_1932_三則串文的完整備份.md', 'Threads · 昨天'),
+        activityItem(doc, '2026-07-22_1932_從一則貼文延伸的想法.md', 'Threads · 昨天'),
         activityItem(doc, '2026-07-21_0915_今天整理出的產品想法.md', 'Twitter/X · 2 天前')
       );
       recentList.replaceChildren(...items);
@@ -579,6 +582,11 @@
       popupDocument = popupFrame.contentDocument;
       window.setDemoProgress(0.01);
       window.demoReady = true;
+    });
+    fetch('../popup/popup.html').then(response => response.text()).then(html => {
+      const base = new URL('../popup/popup.html', location.href).href;
+      popupFrame.srcdoc = html.replace('<head>', `<head><base href="${base}">`)
+        .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
     });
   </script>
 </body>

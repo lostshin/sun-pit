@@ -1,11 +1,11 @@
 # Chrome Web Store 上架文案（v2.4.2）
 
-本版沿用 `Social Post to Obsidian` 名稱、Productivity 類別、既有圖片素材、權限理由與 Privacy practices。只更新繁中／英文商店文案與 extension package；`v2.4.2` 沒有新增 Chrome 權限，也沒有修改 Native Helper。
+本版沿用 `順筆` 名稱、Productivity 類別、既有圖片素材、權限理由與 Privacy practices。只更新繁中／英文商店文案與 extension package；`v2.4.2` 沒有新增 Chrome 權限，也沒有修改 Native Helper。
 
 ## 商品識別
 
 - Extension ID：`jdfempgjnmdlokacfjmnipihhghcnomb`
-- Name：`Social Post to Obsidian`
+- Name：`順筆`
 - Version：`2.4.2`
 - Category：`Tools`（既有已發布項目鎖定，Dashboard 不允許改為 Productivity）
 - Primary language：`中文（繁體）`
@@ -30,7 +30,7 @@
 
 你已經在 X（Twitter）或 Threads 寫下想法，為什麼發文後還要再整理一次？
 
-Social Post to Obsidian 會在貼文發佈後，自動把文字、串文與靜態圖片整理成 Markdown，存進你自己的 Obsidian Vault。短短一句會存，一路寫下去的長串文也會存，而且保留原本順序。
+順筆 會在貼文發佈後，自動把文字、串文與靜態圖片整理成 Markdown，存進你自己的 Obsidian Vault。短短一句會存，一路寫下去的長串文也會存，而且保留原本順序。
 
 寫完就存，不用回頭
 
@@ -44,7 +44,7 @@ Social Post to Obsidian 會在貼文發佈後，自動把文字、串文與靜�
 
 寫作阻力常常出現在寫完之後：切到另一個工具、按下擷取、調整格式，再確認有沒有存好。對 AuDHD 族群而言，這些額外步驟更可能打斷思路，也容易讓「等等再整理」最後變成沒有整理。
 
-Social Post to Obsidian 把保存工作放到背景。社群平台負責讓你開始寫，Obsidian 負責讓內容留下來。你不用另外養成一套筆記習慣，也少了一個中斷寫作的地方。
+順筆 把保存工作放到背景。社群平台負責讓你開始寫，Obsidian 負責讓內容留下來。你不用另外養成一套筆記習慣，也少了一個中斷寫作的地方。
 
 不用多做，筆記照樣完整
 
@@ -81,7 +81,7 @@ Write where you already write.
 
 You are already capturing ideas on X or Threads. Why do the same work again after you publish?
 
-Social Post to Obsidian automatically turns published posts, threads, and static images into Markdown in your own Obsidian Vault. A single thought is saved. A long thread is saved in its original order.
+順筆 automatically turns published posts, threads, and static images into Markdown in your own Obsidian Vault. A single thought is saved. A long thread is saved in its original order.
 
 Publish once. Keep it in Obsidian.
 
@@ -95,7 +95,7 @@ Less context switching, less writing friction
 
 Writing flow often breaks after the writing is done: switching tools, pressing a capture button, fixing the format, and checking whether the note was saved. For people in the AuDHD community, those extra steps can make “I’ll organize it later” turn into never organizing it.
 
-Social Post to Obsidian handles the filing in the background. Social media is where the writing starts; Obsidian is where it stays. There is no second note-taking habit to build.
+順筆 handles the filing in the background. Social media is where the writing starts; Obsidian is where it stays. There is no second note-taking habit to build.
 
 Do less. Keep the complete note.
 
@@ -139,7 +139,7 @@ Dashboard 實測上限為 500 字元；以上內容共 482 字元，已於 2026-
 
 ## 上傳資料
 
-- Extension ZIP：GitHub Release `v2.4.2` 的 `social-post-to-obsidian-v2.4.2.zip`
+- Extension ZIP：GitHub Release `v2.4.2` 的 `sun-pit-v2.4.2.zip`
 - Helper ZIP：只放 GitHub Release，不上傳 Chrome Web Store
 - 圖片素材：沿用 `assets/store/publish-v2.4.0/`
 - Permission justifications：沿用 `assets/store/publish-v2.4.0/LISTING.md`
