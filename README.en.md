@@ -56,7 +56,7 @@ Only the Local REST API destination requires [Obsidian](https://obsidian.md/). O
 
 ## Install
 
-The working tree is the 2.19.1 release candidate; the store and existing releases may still use the previous name and package filenames.
+The working tree is the 2.19.2 release candidate; the store and existing releases may still use the previous name and package filenames.
 
 ### Install from the Chrome Web Store
 

@@ -144,7 +144,7 @@
 - **名稱清理**：原始碼、文件、Helper、測試及工作樹歷史素材已統一；文字、忽略檔、檔名與新版 ZIP 掃描舊名為 0（不含 Git 歷史）。SVG 對應 PNG、Popup 圖與示範 GIF／MP4 已重產；舊產物／快取／備份封存在 `~/sun-pit-archives/20260922-033215/`。
 - **Helper 安裝**：新路徑 installer 已執行，`cmp` 確認安裝的 host.rb 等於來源；原資料夾設定已在本機複製至新設定目錄，未搬移筆記。安裝 manifest 目前授權商店、新路徑 unpacked `hefhgppinnboklgpbdjoplgehpkanamg` 及既有 unpacked `heagjngollcaijefoajffecndijplmeb`；最後一項是額外保留，重跑 installer 前須留意。
 - **本輪修復與驗證**：astra-low 子代理重現「部分掃描覆寫完整索引」，回歸先 FAIL 後 PASS；修復與 Popup 警告／重開恢復已納入 `tests/media-sync.test.mjs`。`2.19.2` validator、完整測試、JS／Ruby 語法與 `git diff --check` 通過；獨立 review 未發現本次引入的可確認問題。隔離真實 Helper 保存→合併→封存→讀回及重跑 0 筆通過；REST／Notes 與 Popup 為替身／VM，不能保證所有既有功能或平台 E2E 無回歸。
-- **本機產物與文件**：`dist/` 仍為 `2.19.1`，checksum 通過但不含本輪修復；未重打包。README、INSTALL、RELEASE_NOTES 與商店指南仍記載舊候選版，發布前須同步至實際版本並重產套件。最近核對本機 tag 為 `v2.15.6`；線上 Release／商店尚未重新核實。
+- **發布候選**：README、INSTALL、RELEASE_NOTES、商店指南與展示素材已同步為 `2.19.2`；本機 `dist/sun-pit-v2.19.2.zip`、Helper ZIP 與 `SHA256SUMS` 已重產並通過完整性檢查。仍須建立不可移動的 `v2.19.2` tag／Release，再以 Release `SHA256SUMS` 驗證 extension ZIP；線上商店狀態須從 Dashboard 讀回。
 - **資料待核實**：8/26 曾繞過 extension 直接呼叫 Host 補封存 111 筆，當時約 20 筆去重 refs 指舊位置；本輪未掃描日常 Vault，不宣稱已修復。先用新索引檢查預覽，再由使用者確認。
 - **待處理候選**：合併結果／逐組錯誤被重新掃描覆蓋；Notes locations 過期回應可能改寫新 provider 提示（尚未動態重現）；iOS 雙引號摘要與桌機檔名不一致、固定 fence 未處理正文 backticks。這些尚未修復，不能因本輪 review 通過就視為結案；tombstone 佔位筆記是刻意限制。
 - **下一步**：核對新路徑 Chrome ID／storage 延續與各 context 版本，再驗收 Chrome→Host alarm、測試 Notes folder 合併／附件、X／Threads 同文／多圖／關閉 Popup。commit／push 不等於發布驗收；真實發文與日常資料操作仍須授權，平台驗收通過後才進入 Release／商店流程。

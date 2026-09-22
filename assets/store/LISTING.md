@@ -1,4 +1,4 @@
-# 順筆 sun-pit：商店文案（2.19.1 候選版）
+# 順筆 sun-pit：商店文案（2.19.2 候選版）
 
 本頁是目前品牌與商店文案的來源；`publish-v2.4.0/`、`publish-v2.4.2/` 保留歷史版本紀錄。此文案尚未代表 Chrome Web Store 已核准或更新。
 
@@ -7,7 +7,7 @@
 - 名稱：`順筆 sun-pit`
 - 簡稱：`順筆`
 - Extension ID：`jdfempgjnmdlokacfjmnipihhghcnomb`（沿用既有項目）
-- 版本：`2.19.1`
+- 版本：`2.19.2`
 - 主要語言：繁體中文
 - GitHub：`https://github.com/lostshin/sun-pit`
 - 支援：`https://github.com/lostshin/sun-pit/issues`
