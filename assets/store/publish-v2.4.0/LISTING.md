@@ -2,7 +2,7 @@
 
 ## 商品識別
 
-- Extension ID：`jdfempgjnmdlokacfjmnipihhghcnomb`
+- Extension ID：`jdfempgjnmdlokacfjmnpiphhghcnomb`
 - 套件標題：`順筆`
 - 建議不要更名：目前名稱簡短、英文自然度可接受，並保留 repository、Popup、Helper 與使用者文件的一致品牌。中文搜尋意圖放進摘要與說明即可。
 - 套件摘要（由 `manifest.json` 帶入）：`發佈 X 與 Threads 貼文後，自動將文字與圖片備份至你的 Obsidian Vault`
@@ -138,7 +138,7 @@ This extension has one purpose: back up the reviewer's own X or Threads posts to
 
 Recommended macOS test path:
 1. Download the matching macOS helper ZIP from the GitHub Release linked in the listing.
-2. Run: ./native/install-host.sh jdfempgjnmdlokacfjmnipihhghcnomb
+2. Run: ./native/install-host.sh jdfempgjnmdlokacfjmnpiphhghcnomb
 3. Reload the extension, open the popup, choose a folder containing .obsidian, and save settings.
 4. Open X or Threads, compose a test post, and verify the generated Markdown in the selected Vault.
 
@@ -152,7 +152,7 @@ No developer-operated server, paid account, analytics service, or remote code is
 ## 送審前不可略過
 
 1. 建立公開 GitHub `v2.4.0` Release，附 extension ZIP、Helper ZIP 與 `SHA256SUMS`。
-2. 用正式 ID `jdfempgjnmdlokacfjmnipihhghcnomb` 驗證 Helper。
+2. 用正式 ID `jdfempgjnmdlokacfjmnpiphhghcnomb` 驗證 Helper。
 3. 在隔離資料下完成 Popup、X 單則／串文、Threads 單則／串文、刪除與補存驗收。
 4. 確認開發者聯絡信箱、兩步驟驗證與隱私權政策 URL 可用。
 5. 全部欄位儲存後，點「為何無法提交？」檢查是否仍缺必填項。

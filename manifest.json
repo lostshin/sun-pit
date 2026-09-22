@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "順筆 sun-pit",
-  "version": "2.19.2",
+  "version": "2.19.3",
   "description": "社群，就是你的筆記本。在 X 與 Threads 寫下想法，發文後自動記進 Markdown 資料夾、Obsidian 或 Apple 備忘錄。",
   "permissions": [
     "storage",

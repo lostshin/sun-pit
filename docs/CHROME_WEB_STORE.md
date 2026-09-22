@@ -1,6 +1,6 @@
 # 順筆 sun-pit：Chrome Web Store 發布指南
 
-目前工作樹是 `2.19.2` 候選版。名稱、定位、繁中／英文文案與素材清單統一維護在 [商店文案](../assets/store/LISTING.md)。歷史版本資料保留在 `assets/store/publish-v2.4.0/` 與 `publish-v2.4.2/`，不作為新版送審內容。
+目前工作樹是 `2.19.3` 候選版。名稱、定位、繁中／英文文案與素材清單統一維護在 [商店文案](../assets/store/LISTING.md)。歷史版本資料保留在 `assets/store/publish-v2.4.0/` 與 `publish-v2.4.2/`，不作為新版送審內容。
 
 本頁是專案操作流程，不代表商店已更新。送審前請核對官方的 [Program Policies](https://developer.chrome.com/docs/webstore/program-policies/policies)、[Prepare your extension](https://developer.chrome.com/docs/webstore/prepare) 與 [Privacy practices](https://developer.chrome.com/docs/webstore/cws-dashboard-privacy/)。
 
@@ -8,7 +8,7 @@
 
 - 對外名稱：**順筆 sun-pit**；核心理念：**社群，就是你的筆記本。**
 - Repository：`lostshin/sun-pit`。
-- 沿用既有商店項目，extension ID 是 `jdfempgjnmdlokacfjmnipihhghcnomb`，不另建項目。
+- 沿用既有商店項目，extension ID 是 `jdfempgjnmdlokacfjmnpiphhghcnomb`，不另建項目。
 - Native Host ID 為 `com.lostshin.sun_pit`，設定目錄為 `~/Library/Application Support/sun-pit`；需安裝新版 Helper。
 - 類別沿用既有項目設定。歷史紀錄顯示為 Tools，請以 Dashboard 當下顯示為準。
 
@@ -25,8 +25,8 @@ git diff --check
 
 | 檔案 | 用途 |
 | --- | --- |
-| `dist/sun-pit-v2.19.2.zip` | Chrome Web Store 與 GitHub 手動安裝 |
-| `dist/sun-pit-helper-v2.19.2-macos.zip` | 另行安裝的 macOS Native Helper |
+| `dist/sun-pit-v2.19.3.zip` | Chrome Web Store 與 GitHub 手動安裝 |
+| `dist/sun-pit-helper-v2.19.3-macos.zip` | 另行安裝的 macOS Native Helper |
 | `dist/SHA256SUMS` | 這次封裝的 SHA-256 checksum |
 
 只上傳 extension ZIP 到商店。Helper ZIP 與 checksum 放在同版本 GitHub Release。使用 Release 上傳後的 `SHA256SUMS` 核對下載檔，不以另一次本機封裝的 hash 代替。
@@ -70,7 +70,7 @@ sun-pit (順筆), turns the reviewer's own X and Threads posts into notes in one
 
 Recommended macOS test:
 1. Download the matching sun-pit-helper-v*-macos.zip from the linked GitHub Release.
-2. Run ./native/install-host.sh jdfempgjnmdlokacfjmnipihhghcnomb.
+2. Run ./native/install-host.sh jdfempgjnmdlokacfjmnpiphhghcnomb.
 3. Reload the extension, choose a writable Markdown folder in the popup, and save settings. Obsidian is optional.
 4. Alternatively choose an Apple Notes account and test folder, and grant the system automation permission when requested.
 5. With a test account, publish an X or Threads post and verify the saved note and images.
@@ -85,7 +85,7 @@ No developer-operated server, analytics, remote code, or developer account is re
 ## 送審與發布
 
 1. 先完成候選版實機驗收；確認 tag、manifest、ZIP 版本一致，CI 通過。
-2. 建立新的 `v2.19.2` Release，確認兩個 ZIP 與 checksum 可下載；不改動既有公開 tag。
+2. 建立新的 `v2.19.3` Release，確認兩個 ZIP 與 checksum 可下載；不改動既有公開 tag。
 3. 上傳該 Release 的 extension ZIP，更新商店文案、素材、支援與隱私 URL。
 4. 讀回 Dashboard 草稿，核對新名稱、文案、權限理由與隱私揭露，再提交審查。
 5. 公開後以匿名商店頁、update service 與隔離安裝確認實際可取得。Dashboard 的狀態標籤不能替代安裝驗收。

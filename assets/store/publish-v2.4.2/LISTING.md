@@ -4,7 +4,7 @@
 
 ## 商品識別
 
-- Extension ID：`jdfempgjnmdlokacfjmnipihhghcnomb`
+- Extension ID：`jdfempgjnmdlokacfjmnpiphhghcnomb`
 - Name：`順筆`
 - Version：`2.4.2`
 - Category：`Tools`（既有已發布項目鎖定，Dashboard 不允許改為 Productivity）
@@ -124,7 +124,7 @@ This is an independent open-source project and is not sponsored, endorsed, or ma
 ```text
 v2.4.2 updates Threads media capture for current endpoints: configure_text_only_post, configure_text_post_app_feed, and configure_text_post_app_sidecar. It accepts permalink-based responses and selects the largest static image. No permissions, data practices, Helper, or remote code changed.
 
-macOS test: get the Helper from the GitHub Release; run ./native/install-host.sh jdfempgjnmdlokacfjmnipihhghcnomb; choose a Vault in the popup; publish on X or Threads; verify the Markdown.
+macOS test: get the Helper from the GitHub Release; run ./native/install-host.sh jdfempgjnmdlokacfjmnpiphhghcnomb; choose a Vault in the popup; publish on X or Threads; verify the Markdown.
 ```
 
 Dashboard 實測上限為 500 字元；以上內容共 482 字元，已於 2026-07-23 儲存。

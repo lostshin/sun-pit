@@ -34,12 +34,12 @@
 
 Chrome Web Store 只能安裝擴充功能，不能代替使用者安裝 Native Helper。商店版使用者若採本機 Helper，需要再完成以下步驟：
 
-1. 從 [Chrome Web Store](https://chromewebstore.google.com/detail/sun-pit/jdfempgjnmdlokacfjmnipihhghcnomb) 安裝順筆。
+1. 從 [Chrome Web Store](https://chromewebstore.google.com/detail/sun-pit/jdfempgjnmdlokacfjmnpiphhghcnomb) 安裝順筆。
 2. 從同版本的 [GitHub Release](https://github.com/lostshin/sun-pit/releases) 下載 `sun-pit-helper-v*-macos.zip` 並解壓縮。
 3. 在終端機進入 Helper 解壓縮資料夾，使用正式 extension ID 執行：
 
    ```bash
-   ./native/install-host.sh jdfempgjnmdlokacfjmnipihhghcnomb
+   ./native/install-host.sh jdfempgjnmdlokacfjmnpiphhghcnomb
    ```
 
 4. 回到 `chrome://extensions/` 按「重新載入」，再依上一節第 6–7 步選擇目的地。
@@ -66,7 +66,7 @@ Popup 的「背景作業」顯示目前已生效目的地的最近封存結果�
 
 此功能只修復已存在的內容去重索引，不會搬移或刪除筆記，也不會修復圖片連結或重建「最近儲存」。封存失敗時先依顯示原因恢復 Helper／REST 連線；若沒有排程時間，可儲存設定重新建立排程。
 
-2.19.2 需要 Native Helper **1.10.0 以上**。請重新執行新版 Helper 安裝程式，再選擇 Markdown 根資料夾。
+2.19.3 需要 Native Helper **1.10.0 以上**。請重新執行新版 Helper 安裝程式，再選擇 Markdown 根資料夾。
 
 ## 更新
 

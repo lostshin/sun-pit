@@ -19,7 +19,7 @@
 Chrome Web Store 版使用者若採 Native Helper，請執行：
 
 ```bash
-./native/install-host.sh jdfempgjnmdlokacfjmnipihhghcnomb
+./native/install-host.sh jdfempgjnmdlokacfjmnpiphhghcnomb
 ```
 
 Native Host 實際版本：`1.1.3`。

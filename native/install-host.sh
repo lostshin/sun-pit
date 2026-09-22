@@ -13,7 +13,7 @@ fi
 
 script_dir="${0:A:h}"
 project_dir="${script_dir:h}"
-store_extension_id="jdfempgjnmdlokacfjmnipihhghcnomb"
+store_extension_id="jdfempgjnmdlokacfjmnpiphhghcnomb"
 extension_id="${1:-}"
 
 if [[ -z "${extension_id}" ]]; then

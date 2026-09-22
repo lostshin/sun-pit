@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="https://chromewebstore.google.com/detail/sun-pit/jdfempgjnmdlokacfjmnipihhghcnomb"><img alt="Chrome Web Store" src="https://img.shields.io/badge/Chrome_Web_Store-Install-4285F4?logo=googlechrome&logoColor=white"></a>
+  <a href="https://chromewebstore.google.com/detail/sun-pit/jdfempgjnmdlokacfjmnpiphhghcnomb"><img alt="Chrome Web Store" src="https://img.shields.io/badge/Chrome_Web_Store-Install-4285F4?logo=googlechrome&logoColor=white"></a>
   <a href="https://github.com/lostshin/sun-pit/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/lostshin/sun-pit?style=flat"></a>
   <a href="https://github.com/lostshin/sun-pit/actions/workflows/validate.yml"><img alt="Validate Extension" src="https://github.com/lostshin/sun-pit/actions/workflows/validate.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-6E56B3.svg"></a>
@@ -56,7 +56,7 @@
 
 ## 安裝
 
-順筆的英文識別名是 **sun-pit**。目前工作樹為 2.19.2 候選版；商店與既有 Release 可能仍使用舊名稱及舊套件檔名。完整步驟、更新方式與移除方法請見 [INSTALL.md](INSTALL.md)。以下是最短流程。
+順筆的英文識別名是 **sun-pit**。目前工作樹為 2.19.3 候選版；商店與既有 Release 可能仍使用舊名稱及舊套件檔名。完整步驟、更新方式與移除方法請見 [INSTALL.md](INSTALL.md)。以下是最短流程。
 
 ### 從 GitHub Release 手動安裝
 
@@ -74,12 +74,12 @@ Chrome 不能直接載入 ZIP。更新手動安裝版時也要保留相同資料
 
 ### 從 Chrome Web Store 安裝
 
-1. 從 [Chrome Web Store](https://chromewebstore.google.com/detail/sun-pit/jdfempgjnmdlokacfjmnipihhghcnomb) 安裝擴充功能。
+1. 從 [Chrome Web Store](https://chromewebstore.google.com/detail/sun-pit/jdfempgjnmdlokacfjmnpiphhghcnomb) 安裝擴充功能。
 2. 若要使用預設的本機 Helper，從同版本 [GitHub Release](https://github.com/lostshin/sun-pit/releases) 下載 `sun-pit-helper-v*-macos.zip`。
 3. 解壓縮後執行：
 
 ```bash
-./native/install-host.sh jdfempgjnmdlokacfjmnipihhghcnomb
+./native/install-host.sh jdfempgjnmdlokacfjmnpiphhghcnomb
 ```
 
 Chrome Web Store 基於安全限制不會自動執行本機安裝程式。Markdown 資料夾與 Apple 備忘錄需要 Helper；若不想安裝，可改用 Local REST API。

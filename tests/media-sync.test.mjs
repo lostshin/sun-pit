@@ -128,7 +128,7 @@ try {
     'Library/Application Support/Google/Chrome/NativeMessagingHosts/com.lostshin.sun_pit.json'
   ), 'utf8'));
   assert.ok(
-    installedManifest.allowed_origins.includes('chrome-extension://jdfempgjnmdlokacfjmnipihhghcnomb/'),
+    installedManifest.allowed_origins.includes('chrome-extension://jdfempgjnmdlokacfjmnpiphhghcnomb/'),
     'installer 預設必須授權 Chrome Web Store 正式版'
   );
   assert.equal(installedManifest.allowed_origins.length, 2, 'installer 仍須同時授權目前未封裝版');

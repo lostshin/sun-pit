@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="https://chromewebstore.google.com/detail/sun-pit/jdfempgjnmdlokacfjmnipihhghcnomb"><img alt="Chrome Web Store" src="https://img.shields.io/badge/Chrome_Web_Store-Install-4285F4?logo=googlechrome&logoColor=white"></a>
+  <a href="https://chromewebstore.google.com/detail/sun-pit/jdfempgjnmdlokacfjmnpiphhghcnomb"><img alt="Chrome Web Store" src="https://img.shields.io/badge/Chrome_Web_Store-Install-4285F4?logo=googlechrome&logoColor=white"></a>
   <a href="https://github.com/lostshin/sun-pit/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/lostshin/sun-pit?style=flat"></a>
   <a href="https://github.com/lostshin/sun-pit/actions/workflows/validate.yml"><img alt="Validate Extension" src="https://github.com/lostshin/sun-pit/actions/workflows/validate.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-6E56B3.svg"></a>
@@ -56,16 +56,16 @@ Only the Local REST API destination requires [Obsidian](https://obsidian.md/). O
 
 ## Install
 
-The working tree is the 2.19.2 release candidate; the store and existing releases may still use the previous name and package filenames.
+The working tree is the 2.19.3 release candidate; the store and existing releases may still use the previous name and package filenames.
 
 ### Install from the Chrome Web Store
 
-1. Install [sun-pit from the Chrome Web Store](https://chromewebstore.google.com/detail/sun-pit/jdfempgjnmdlokacfjmnipihhghcnomb).
+1. Install [sun-pit from the Chrome Web Store](https://chromewebstore.google.com/detail/sun-pit/jdfempgjnmdlokacfjmnpiphhghcnomb).
 2. To use the recommended Native Helper on macOS, download `sun-pit-helper-v*-macos.zip` from the matching [GitHub Release](https://github.com/lostshin/sun-pit/releases).
 3. Extract the archive and run:
 
    ```bash
-   ./native/install-host.sh jdfempgjnmdlokacfjmnipihhghcnomb
+   ./native/install-host.sh jdfempgjnmdlokacfjmnpiphhghcnomb
    ```
 
 Chrome Web Store extensions cannot install local programs automatically. If you prefer not to install the Helper, choose Local REST API in the popup instead.

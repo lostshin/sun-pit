@@ -107,7 +107,7 @@
 
 ## Native／iCloud、REST 與刪除
 
-- Host ID `com.lostshin.sun_pit`；設定 `~/Library/Application Support/sun-pit/config.json`；商店 origin 固定 `jdfempgjnmdlokacfjmnipihhghcnomb`。
+- Host ID `com.lostshin.sun_pit`；設定 `~/Library/Application Support/sun-pit/config.json`；Dashboard 真實商店 item／origin 固定 `jdfempgjnmdlokacfjmnpiphhghcnomb`。發布前從 publisher 商品清單讀回 ID，並核對 installer、文件、測試與上傳目標完全一致，不可信任舊文件或手打連結。
 - 一般資料夾不要求 `.obsidian`；若有則用 `obsidian://` 開啟，否則交 macOS 預設 Markdown app。未安裝 Obsidian 時應選一般資料夾；含 `.obsidian` 的資料夾仍可儲存，但「開啟」會嘗試啟動 Obsidian。只接受根目錄內相對路徑，保留 symlink 邊界。
 - iCloud `File.delete` 可能 `EPERM`：先看 framed response／stderr／unified log；iCloud 用 Finder alias 丟垃圾桶，本機才直接刪。
 - Popup 刪除順序固定為實體目的地 → storage → UI；`SYNC_VAULT_ACTIVITY` 只有 `exists:false` 才清 storage，Host 不可用就保留。
@@ -139,12 +139,12 @@
 ## 目前進度（2026-09-22）
 
 - **位置與品牌**：本機已搬至 `/Users/lokunlim/projects/sun-pit`；GitHub repository／About 與 origin 已改為 `lostshin/sun-pit`。現有 `CLAUDE.md -> AGENTS.md` 接線正常。舊路徑不再使用。
-- **版本與提交**：Extension `2.19.2`、schema v3、Host／最低需求 `1.10.0`。本輪獲授權將掃描修復、規則、先前改名、維護功能、素材與文件一併 commit／push；實際同步狀態以 `git log`／`git status` 及遠端 ref 為準，不在本檔寫會立即過期的 HEAD。尚未建立新版 tag／Release 或更新商店。
+- **版本與提交**：Extension `2.19.3`、schema v3、Host／最低需求 `1.10.0`。`v2.19.2` 已建立但因商店 ID 錯誤不得上傳；公開 tag 不移動、不刪除。新的 `v2.19.3` 修復 installer／文件／測試後另行發布，實際同步狀態以 Git 與遠端 ref 為準。
 - **已完成功能**：Popup 封存狀態與目前目的地的索引預覽／確認修復；封存不再跨 destination scope 改寫索引。正文／來源／revision／快照重新驗證、失敗保留與讀回已測；詳細契約見上方，避免在進度區重抄。
 - **名稱清理**：原始碼、文件、Helper、測試及工作樹歷史素材已統一；文字、忽略檔、檔名與新版 ZIP 掃描舊名為 0（不含 Git 歷史）。SVG 對應 PNG、Popup 圖與示範 GIF／MP4 已重產；舊產物／快取／備份封存在 `~/sun-pit-archives/20260922-033215/`。
-- **Helper 安裝**：新路徑 installer 已執行，`cmp` 確認安裝的 host.rb 等於來源；原資料夾設定已在本機複製至新設定目錄，未搬移筆記。安裝 manifest 目前授權商店、新路徑 unpacked `hefhgppinnboklgpbdjoplgehpkanamg` 及既有 unpacked `heagjngollcaijefoajffecndijplmeb`；最後一項是額外保留，重跑 installer 前須留意。
-- **本輪修復與驗證**：astra-low 子代理重現「部分掃描覆寫完整索引」，回歸先 FAIL 後 PASS；修復與 Popup 警告／重開恢復已納入 `tests/media-sync.test.mjs`。`2.19.2` validator、完整測試、JS／Ruby 語法與 `git diff --check` 通過；獨立 review 未發現本次引入的可確認問題。隔離真實 Helper 保存→合併→封存→讀回及重跑 0 筆通過；REST／Notes 與 Popup 為替身／VM，不能保證所有既有功能或平台 E2E 無回歸。
-- **發布候選**：README、INSTALL、RELEASE_NOTES、商店指南與展示素材已同步為 `2.19.2`；本機 `dist/sun-pit-v2.19.2.zip`、Helper ZIP 與 `SHA256SUMS` 已重產並通過完整性檢查。仍須建立不可移動的 `v2.19.2` tag／Release，再以 Release `SHA256SUMS` 驗證 extension ZIP；線上商店狀態須從 Dashboard 讀回。
+- **Helper 安裝**：`2.19.3` installer 已執行，`cmp` 確認安裝的 host.rb 等於來源；安裝 manifest 已讀回授權真實商店 ID、新路徑 unpacked `hefhgppinnboklgpbdjoplgehpkanamg` 及既有 unpacked `heagjngollcaijefoajffecndijplmeb`。最後一項是額外保留，重跑 installer 前須留意；原設定未搬移筆記。
+- **本輪修復與驗證**：astra-low 子代理重現「部分掃描覆寫完整索引」，回歸先 FAIL 後 PASS；修復與 Popup 警告／重開恢復已納入測試。Dashboard 又驗出 installer 的商店 ID 錯誤，正式 ID 回歸先 FAIL，修復後須重裝並讀回 manifest。`2.19.3` 完成前仍須跑 validator、完整測試、JS／Ruby／Shell 語法與 `git diff --check`；REST／Notes 與 Popup 為替身／VM，不能保證所有平台 E2E 無回歸。
+- **發布候選**：README、INSTALL、RELEASE_NOTES、商店指南、展示素材與本機 `dist/` 已同步為 `2.19.3`，ZIP 與 checksum 通過；仍須建立新的 `v2.19.3` tag／Release，再以 Release `SHA256SUMS` 驗證 extension ZIP。Dashboard 目前公開 `2.15.6`；publisher 為 `lô-kun-lîm`，使用者要求上架並採通過審查後自動發布。
 - **資料待核實**：8/26 曾繞過 extension 直接呼叫 Host 補封存 111 筆，當時約 20 筆去重 refs 指舊位置；本輪未掃描日常 Vault，不宣稱已修復。先用新索引檢查預覽，再由使用者確認。
 - **待處理候選**：合併結果／逐組錯誤被重新掃描覆蓋；Notes locations 過期回應可能改寫新 provider 提示（尚未動態重現）；iOS 雙引號摘要與桌機檔名不一致、固定 fence 未處理正文 backticks。這些尚未修復，不能因本輪 review 通過就視為結案；tombstone 佔位筆記是刻意限制。
 - **下一步**：核對新路徑 Chrome ID／storage 延續與各 context 版本，再驗收 Chrome→Host alarm、測試 Notes folder 合併／附件、X／Threads 同文／多圖／關閉 Popup。commit／push 不等於發布驗收；真實發文與日常資料操作仍須授權，平台驗收通過後才進入 Release／商店流程。
