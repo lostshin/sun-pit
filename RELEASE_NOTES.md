@@ -1,6 +1,6 @@
 # 2.19.3 候選版
 
-日期：2026-09-22。GitHub repository 與 About 已更名為 `lostshin/sun-pit`；商店新版名稱、文案與素材尚未上傳。這是 `2.19.3` 發布候選版，尚未建立 tag、上傳 GitHub Release 或提交 Chrome Web Store。Native Helper 維持 1.10.0，最低需求也是 1.10.0；storage schema 維持 v3。
+日期：2026-09-22。GitHub repository 與 About 已更名為 `lostshin/sun-pit`。`v2.19.3` tag、GitHub Release、商店名稱、文案與素材均已完成，Chrome Web Store 狀態為「待審查」，通過後自動發布；目前公開版仍是 `2.15.6`。Native Helper 維持 1.10.0，最低需求也是 1.10.0；storage schema 維持 v3。
 
 ## 使用者可見變更
 
